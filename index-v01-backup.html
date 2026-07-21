@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agenzia di Viaggio Immaginaria — prototipo mappe</title>
+<style>
+  :root{
+    --bg:#211c17; --panel:#2b241d; --panel2:#332a21; --line:#4a3d30;
+    --ink:#e9ddc6; --muted:#a8977a; --accent:#c98a4b; --accent2:#7fa7a0;
+    --danger:#b5563f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    display:flex; height:100vh; overflow:hidden;
+  }
+  /* ---------- Console operatore (sinistra) ---------- */
+  #console{
+    width:320px; min-width:320px; height:100%; overflow-y:auto;
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border-right:1px solid var(--line); padding:16px 16px 40px;
+  }
+  #console h1{font-size:16px;letter-spacing:.5px;margin:0 0 2px}
+  #console .sub{font-size:11px;color:var(--muted);margin:0 0 14px;font-style:italic}
+  .group{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:12px;background:rgba(0,0,0,.12)}
+  .group h2{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:0 0 8px;font-family:system-ui,sans-serif}
+  .tools{display:flex;flex-wrap:wrap;gap:6px}
+  .tool{
+    display:flex;align-items:center;gap:6px;cursor:pointer;
+    border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px;
+    background:rgba(255,255,255,.02);user-select:none;
+  }
+  .tool:hover{border-color:var(--accent)}
+  .tool.active{background:var(--accent);color:#231a10;border-color:var(--accent);font-weight:600}
+  .swatch{width:13px;height:13px;border-radius:3px;border:1px solid rgba(0,0,0,.4)}
+  select,input[type=text]{
+    width:100%;background:#1c1712;color:var(--ink);border:1px solid var(--line);
+    border-radius:6px;padding:6px 8px;font-family:inherit;font-size:13px
+  }
+  label.fld{display:block;font-size:11px;color:var(--muted);margin:8px 0 3px;font-family:system-ui,sans-serif}
+  .jolly-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+  .jolly-row .tag{width:20px;text-align:center;font-size:11px;color:var(--accent);font-weight:700}
+  .btns{display:flex;flex-direction:column;gap:7px}
+  button.act{
+    font-family:inherit;font-size:13px;cursor:pointer;padding:9px;border-radius:7px;
+    border:1px solid var(--line);background:#3a2f24;color:var(--ink);letter-spacing:.3px
+  }
+  button.act:hover{border-color:var(--accent);background:#463829}
+  button.primary{background:var(--accent);color:#231a10;border-color:var(--accent);font-weight:700}
+  button.ghost{background:transparent}
+  .hint{font-size:10.5px;color:var(--muted);line-height:1.5;margin-top:6px}
+  /* ---------- Centro: griglia input ---------- */
+  #middle{width:360px;min-width:360px;height:100%;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;border-right:1px solid var(--line);background:#1b1611;padding:16px}
+  #gridWrap{position:relative}
+  #grid{display:grid;grid-template-columns:repeat(8,38px);grid-template-rows:repeat(8,38px);gap:2px;
+    background:var(--line);padding:2px;border-radius:6px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  .cell{background:#d9cba8;border-radius:2px;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;position:relative;font-size:16px;transition:transform .05s}
+  .cell.dark{background:#c7b78f}
+  .cell:hover{transform:scale(1.06);outline:2px solid var(--accent)}
+  .cell .pip{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:14px;color:#fff;box-shadow:inset 0 -3px 6px rgba(0,0,0,.35),0 2px 4px rgba(0,0,0,.4)}
+  .cell .terr{position:absolute;inset:0;border-radius:2px;opacity:.9}
+  .cell .ord{position:absolute;top:-2px;right:0;font-size:9px;color:#231a10;background:var(--accent);
+    border-radius:8px;padding:0 3px;font-family:system-ui,sans-serif}
+  #middle .cap{font-size:11px;color:var(--muted);margin-top:12px;text-align:center;font-style:italic;max-width:300px}
+  /* ---------- Destra: mappa ---------- */
+  #map{flex:1;height:100%;overflow:auto;background:#0f0c09;display:flex;align-items:center;justify-content:center;padding:14px}
+  #map svg{max-width:100%;max-height:100%;box-shadow:0 10px 40px rgba(0,0,0,.6);border-radius:3px}
+  @media print{
+    body{display:block;background:#fff}
+    #console,#middle{display:none}
+    #map{height:auto;overflow:visible;background:#fff;padding:0}
+    #map svg{box-shadow:none;max-height:none}
+  }
+</style>
+</head>
+<body>
+  <!-- ===================== CONSOLE OPERATORE ===================== -->
+  <aside id="console">
+    <h1>Cartografo · console</h1>
+    <p class="sub">taccuino dell'operatore — nascondere alla vista del cliente</p>
+
+    <div class="group">
+      <h2>Carattere della sessione</h2>
+      <select id="character">
+        <option value="classico">Classico · storico europeo</option>
+        <option value="culturale">Culturale · raccolto, colto</option>
+        <option value="festaiolo">Festaiolo · vivo, notturno</option>
+        <option value="rilassante">Rilassante · lento, verde</option>
+        <option value="avventura">Avventura · aspro, remoto</option>
+      </select>
+      <div class="hint">Colora nomi, microdescrizioni e palette della mappa a parità di scacchiera.</div>
+    </div>
+
+    <div class="group">
+      <h2>Pennello attivo</h2>
+      <div class="tools" id="terrainTools"></div>
+      <div class="tools" id="placeTools" style="margin-top:8px"></div>
+      <div class="tools" id="jollyTools" style="margin-top:8px"></div>
+      <div class="tools" style="margin-top:8px">
+        <div class="tool" data-tool="erase"><span class="swatch" style="background:#d9cba8"></span>Gomma</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Etichette jolly</h2>
+      <div id="jollyLabels"></div>
+      <div class="hint">Testo libero raccolto dal racconto del cliente. Compila la pedina jolly corrispondente.</div>
+    </div>
+
+    <div class="group">
+      <h2>Regia</h2>
+      <div class="btns">
+        <button class="act primary" id="btnGen">✦ Genera la mappa</button>
+        <button class="act" id="btnExport">Esporta SVG</button>
+        <button class="act" id="btnPrint">Stampa</button>
+        <button class="act ghost" id="btnClear">Pulisci scacchiera</button>
+        <button class="act ghost" id="btnDemo">Esempio dimostrativo</button>
+      </div>
+      <div class="hint" id="status">Pronto.</div>
+    </div>
+  </aside>
+
+  <!-- ===================== GRIGLIA INPUT ===================== -->
+  <section id="middle">
+    <div id="gridWrap"><div id="grid"></div></div>
+    <div class="cap">Scacchiera 8×8. Clicca (o trascina) per posizionare le pedine.<br>L'ordine dei luoghi definisce l'itinerario.</div>
+  </section>
+
+  <!-- ===================== MAPPA ===================== -->
+  <section id="map"><div id="mapHost"></div></section>
+
+<script>
+"use strict";
+/* =====================================================================
+   AGENZIA DI VIAGGIO IMMAGINARIA — prototipo v0.1
+   Griglia 8x8 -> analisi terreno -> rete stradale -> mappa SVG vintage.
+   Tutto locale, deterministico (stessa scacchiera => stessa citta').
+   ===================================================================== */
+
+const N = 8;                     // celle per lato
+const CELL = 90;                 // unita' mappa per cella
+const M = 64;                    // margine mappa
+const MAPW = M*2 + N*CELL;       // lato area mappa
+const SIDE = 360;                // colonna legenda/itinerario a destra
+const SVGW = MAPW + SIDE, SVGH = MAPW;
+
+/* ---------- Tassonomia luoghi (dal brief) ---------- */
+const CATS = [
+  {id:'chiesa',    name:'Chiesa',      group:'sacro',    icon:'church'},
+  {id:'cimitero',  name:'Cimitero',    group:'sacro',    icon:'grave'},
+  {id:'monumento', name:'Monumento',   group:'sacro',    icon:'obelisk'},
+  {id:'municipio', name:'Municipio',   group:'civico',   icon:'townhall'},
+  {id:'piazza',    name:'Piazza',      group:'civico',   icon:'square'},
+  {id:'torre',     name:'Torre',       group:'civico',   icon:'tower'},
+  {id:'mercato',   name:'Mercato',     group:'scambio',  icon:'market'},
+  {id:'stazione',  name:'Stazione',    group:'scambio',  icon:'station'},
+  {id:'porto',     name:'Porto',       group:'scambio',  icon:'anchor', needsWater:true},
+  {id:'ponte',     name:'Ponte',       group:'attraver', icon:'bridge', isBridge:true},
+  {id:'porta',     name:'Porta/Mura',  group:'attraver', icon:'gate'},
+  {id:'biblioteca',name:'Biblioteca',  group:'cultura',  icon:'book'},
+  {id:'teatro',    name:'Teatro',      group:'cultura',  icon:'theatre'},
+  {id:'giardino',  name:'Giardino',    group:'verde',    icon:'tree'},
+  {id:'fontana',   name:'Fontana',     group:'verde',    icon:'fountain'},
+  {id:'osteria',   name:'Osteria',     group:'quotid',   icon:'mug'},
+  {id:'bottega',   name:'Bottega',     group:'quotid',   icon:'hammer'},
+  {id:'locale',    name:'Locale',      group:'notte',    icon:'note'},
+];
+const CAT = Object.fromEntries(CATS.map(c=>[c.id,c]));
+const GROUP_NAME = {sacro:'Sacro',civico:'del Potere',scambio:'dei Mercanti',
+  attraver:'delle Porte',cultura:'delle Arti',verde:'dei Giardini',
+  quotid:'Vecchio',notte:'della Notte'};
+
+const TERRAINS = {
+  water:   {name:'Acqua',   color:'#3b6f86'},
+  mountain:{name:'Montagna',color:'#7a5a3a'},
+  hill:    {name:'Collina', color:'#6f8a4a'},
+};
+const NJOLLY = 5;
+
+/* ---------- Palette per carattere ---------- */
+const PALETTES = {
+  classico:  {paper:'#efe4c9',paper2:'#e6d8b6',ink:'#463a29',water:'#a9c3cb',waterLn:'#5f8494',
+              road:'#7a6748',road2:'#a08a63',relief:'#8a6a45',green:'#8ba05a',district:'#c9a24b',frame:'#7a6748'},
+  culturale: {paper:'#ece6d6',paper2:'#dfd7c2',ink:'#33323f',water:'#9fb3c6',waterLn:'#5a6f8c',
+              road:'#5c5568',road2:'#8b8398',relief:'#6b6478',green:'#7f9078',district:'#7a6ea0',frame:'#5c5568'},
+  festaiolo: {paper:'#f2e3c6',paper2:'#ecd4ac',ink:'#4a2f28',water:'#b9c6b0',waterLn:'#7f9470',
+              road:'#9a4f3a',road2:'#c67c53',relief:'#9a5a3f',green:'#9aa24f',district:'#c8543f',frame:'#9a4f3a'},
+  rilassante:{paper:'#e9ead2',paper2:'#dce0bf',ink:'#3c463a',water:'#accbc9',waterLn:'#6f9b95',
+              road:'#7d8663',road2:'#a3aa85',relief:'#77854f',green:'#8fae6a',district:'#8aa86a',frame:'#7d8663'},
+  avventura: {paper:'#e7d6ad',paper2:'#dcc593',ink:'#3a2c1c',water:'#8fa9a3',waterLn:'#557069',
+              road:'#6d5738',road2:'#977c4f',relief:'#7c5a34',green:'#7c8a44',district:'#a5702f',frame:'#6d5738'},
+};
+
+/* ===================== RNG deterministico ===================== */
+function hashStr(s){let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let RND = mulberry32(1);
+const rr=(a,b)=>a+(b-a)*RND();
+const pick=arr=>arr[Math.floor(RND()*arr.length)|0];
+
+/* ===================== STATO ===================== */
+// grid[r][c] = null | {kind:'terrain', terrain:'water'|...} | {kind:'place', cat:id, ord:n} | {kind:'jolly', j:idx, ord:n}
+let grid = emptyGrid();
+let order = 0;
+let tool = {type:'place', cat:'chiesa'};
+let jollyText = Array(NJOLLY).fill('');
+function emptyGrid(){return Array.from({length:N},()=>Array(N).fill(null));}
+
+/* ===================== UI: costruzione console ===================== */
+function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
+
+function buildToolbars(){
+  const tt=document.getElementById('terrainTools');
+  for(const [k,v] of Object.entries(TERRAINS)){
+    const t=el('div','tool',`<span class="swatch" style="background:${v.color}"></span>${v.name}`);
+    t.dataset.tool='terrain';t.dataset.k=k;tt.appendChild(t);
+  }
+  const pt=document.getElementById('placeTools');
+  const sel=el('select');sel.id='catSelect';
+  for(const c of CATS){const o=el('option');o.value=c.id;o.textContent=c.name+(c.needsWater?' (acqua)':'')+(c.isBridge?' ⌂':'');sel.appendChild(o);}
+  const wrap=el('div','tool');wrap.style.flexDirection='column';wrap.style.alignItems='stretch';wrap.style.flex='1';
+  wrap.dataset.tool='place';
+  wrap.innerHTML='<div style="font-size:10px;color:#a8977a;margin-bottom:4px;font-family:system-ui">Pedina luogo ▾</div>';
+  wrap.appendChild(sel);pt.appendChild(wrap);
+  sel.addEventListener('change',()=>{tool={type:'place',cat:sel.value};setActive(wrap);});
+  sel.addEventListener('click',e=>e.stopPropagation());
+
+  const jt=document.getElementById('jollyTools');
+  for(let i=0;i<NJOLLY;i++){
+    const t=el('div','tool',`<span class="swatch" style="background:#3a3a3a;color:#e9c98a;display:flex;align-items:center;justify-content:center;font-size:9px">J${i+1}</span>jolly`);
+    t.dataset.tool='jolly';t.dataset.j=i;jt.appendChild(t);
+  }
+  const jl=document.getElementById('jollyLabels');
+  for(let i=0;i<NJOLLY;i++){
+    const row=el('div','jolly-row');
+    row.appendChild(el('span','tag',`J${i+1}`));
+    const inp=el('input');inp.type='text';inp.placeholder='es. musica dal vivo…';inp.dataset.j=i;
+    inp.addEventListener('input',()=>{jollyText[i]=inp.value;});
+    row.appendChild(inp);jl.appendChild(row);
+  }
+}
+function setActive(node){document.querySelectorAll('.tool').forEach(t=>t.classList.remove('active'));if(node)node.classList.add('active');}
+
+function wireTools(){
+  document.querySelectorAll('.tool').forEach(t=>{
+    t.addEventListener('click',()=>{
+      const kind=t.dataset.tool;
+      if(kind==='terrain')tool={type:'terrain',k:t.dataset.k};
+      else if(kind==='jolly')tool={type:'jolly',j:+t.dataset.j};
+      else if(kind==='erase')tool={type:'erase'};
+      else if(kind==='place')tool={type:'place',cat:document.getElementById('catSelect').value};
+      setActive(t);
+    });
+  });
+}
+
+/* ===================== UI: griglia input ===================== */
+const gridEl=document.getElementById('grid');
+let painting=false;
+function buildGrid(){
+  gridEl.innerHTML='';
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const cell=el('div','cell'+((r+c)%2?' dark':''));
+    cell.dataset.r=r;cell.dataset.c=c;
+    cell.addEventListener('mousedown',e=>{e.preventDefault();painting=true;applyTool(r,c);});
+    cell.addEventListener('mouseenter',()=>{if(painting)applyTool(r,c);});
+    gridEl.appendChild(cell);
+  }
+}
+document.addEventListener('mouseup',()=>painting=false);
+
+function applyTool(r,c){
+  const cur=grid[r][c];
+  if(tool.type==='erase'){grid[r][c]=null;}
+  else if(tool.type==='terrain'){grid[r][c]={kind:'terrain',terrain:tool.k};}
+  else if(tool.type==='place'){
+    if(cur&&cur.kind==='place'&&cur.cat===tool.cat){grid[r][c]=null;}
+    else grid[r][c]={kind:'place',cat:tool.cat,ord:++order};
+  }
+  else if(tool.type==='jolly'){
+    if(cur&&cur.kind==='jolly'&&cur.j===tool.j){grid[r][c]=null;}
+    else grid[r][c]={kind:'jolly',j:tool.j,ord:++order};
+  }
+  renderGrid();
+  scheduleGen();
+}
+
+function renderGrid(){
+  const cells=gridEl.children;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const cell=cells[r*N+c];cell.innerHTML='';
+    const v=grid[r][c];if(!v)continue;
+    if(v.kind==='terrain'){
+      const t=el('div','terr');t.style.background=TERRAINS[v.terrain].color;cell.appendChild(t);
+    }else if(v.kind==='place'){
+      const p=el('div','pip');p.style.background='#2c2c2c';p.textContent=iconGlyph(CAT[v.cat].icon);
+      p.title=CAT[v.cat].name;cell.appendChild(p);
+      cell.appendChild(el('div','ord',v.ord));
+    }else if(v.kind==='jolly'){
+      const p=el('div','pip');p.style.background='#5a4a2a';p.textContent='★';p.title='Jolly '+(v.j+1);
+      cell.appendChild(p);cell.appendChild(el('div','ord',v.ord));
+    }
+  }
+}
+function iconGlyph(k){return {church:'⛪',grave:'✝',obelisk:'▲',townhall:'⌂',square:'◇',tower:'♜',
+  market:'☰',station:'≡',anchor:'⚓',bridge:'∩',gate:'⊓',book:'▤',theatre:'◑',tree:'♣',
+  fountain:'♒',mug:'♨',hammer:'⚒',note:'♪'}[k]||'•';}
+
+/* ===================== ANALISI TERRENO ===================== */
+// connected components (4-conn) di celle che soddisfano pred
+function components(pred){
+  const seen=Array.from({length:N},()=>Array(N).fill(false));
+  const comps=[];
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    if(seen[r][c]||!pred(r,c))continue;
+    const q=[[r,c]];seen[r][c]=true;const cells=[];
+    while(q.length){const [y,x]=q.pop();cells.push([y,x]);
+      for(const [dy,dx] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const ny=y+dy,nx=x+dx;
+        if(ny>=0&&ny<N&&nx>=0&&nx<N&&!seen[ny][nx]&&pred(ny,nx)){seen[ny][nx]=true;q.push([ny,nx]);}
+      }
+    }
+    comps.push(cells);
+  }
+  return comps;
+}
+function analyzeTerrain(){
+  const feats=[]; // {terrain, class, cells}
+  const isT=(t)=>(r,c)=>{const v=grid[r][c];return v&&v.kind==='terrain'&&v.terrain===t;};
+  // acqua
+  for(const cells of components(isT('water'))){
+    const cls=classifyWater(cells);
+    feats.push({terrain:'water',cls,cells});
+  }
+  // montagna / collina
+  for(const t of ['mountain','hill']){
+    for(const cells of components(isT(t))){
+      const cls=cells.length===1?(t==='mountain'?'collinetta':'macchia'):(t==='mountain'?'montagna':'collina');
+      feats.push({terrain:t,cls,cells});
+    }
+  }
+  return feats;
+}
+function classifyWater(cells){
+  if(cells.length===1)return 'laghetto';
+  const rows=cells.map(c=>c[0]),cols=cells.map(c=>c[1]);
+  const border=cells.some(([r,c])=>r===0||r===N-1||c===0||c===N-1);
+  const spanR=Math.max(...rows)-Math.min(...rows), spanC=Math.max(...cols)-Math.min(...cols);
+  const touchTop=rows.includes(0),touchBot=rows.includes(N-1),touchL=cols.includes(0),touchR=cols.includes(N-1);
+  const crosses=(touchTop&&touchBot)||(touchL&&touchR);
+  const thin=Math.min(spanR,spanC)<=1;
+  if(crosses&&thin)return 'fiume';
+  if(border){
+    // corre lungo un bordo => costa/mare; altrimenti fiume che sfocia
+    const alongEdge=(touchTop&&spanC>=spanR)||(touchBot&&spanC>=spanR)||(touchL&&spanR>=spanC)||(touchR&&spanR>=spanC);
+    return alongEdge?'mare':'fiume';
+  }
+  return 'lago';
+}
+function waterCellSet(){const s=new Set();for(let r=0;r<N;r++)for(let c=0;c<N;c++){const v=grid[r][c];if(v&&v.kind==='terrain'&&v.terrain==='water')s.add(r*N+c);}return s;}
+function hasAnyWater(){return waterCellSet().size>0;}
+
+/* ===================== OUTLINE TRACER (celle -> loops) =====================
+   Traccia il contorno di un insieme di celle come loop di punti in coord mappa. */
+function cellKey(r,c){return r*N+c;}
+function traceOutline(cells){
+  const set=new Set(cells.map(([r,c])=>cellKey(r,c)));
+  const has=(r,c)=>set.has(cellKey(r,c));
+  // raccogli spigoli diretti (senso orario per cella, y verso il basso)
+  const edges=[]; // {a:[x,y], b:[x,y]}
+  const P=(gx,gy)=>[gx,gy];
+  for(const [r,c] of cells){
+    if(!has(r-1,c))edges.push({a:P(c,r),   b:P(c+1,r)});   // top  A->B
+    if(!has(r,c+1))edges.push({a:P(c+1,r), b:P(c+1,r+1)}); // right B->C
+    if(!has(r+1,c))edges.push({a:P(c+1,r+1),b:P(c,r+1)});  // bottom C->D
+    if(!has(r,c-1))edges.push({a:P(c,r+1), b:P(c,r)});     // left  D->A
+  }
+  // indicizza per punto di partenza
+  const kp=p=>p[0]+','+p[1];
+  const byStart=new Map();
+  for(const e of edges){const k=kp(e.a);if(!byStart.has(k))byStart.set(k,[]);byStart.get(k).push(e);}
+  const used=new Set();
+  const loops=[];
+  for(const e0 of edges){
+    if(used.has(e0))continue;
+    const loop=[];let e=e0;let guard=0;
+    while(e&&!used.has(e)&&guard++<2000){
+      used.add(e);loop.push(e.a);
+      const outs=(byStart.get(kp(e.b))||[]).filter(x=>!used.has(x));
+      if(outs.length===0)break;
+      // se ambiguo (checkerboard) scegli la svolta piu' a destra
+      let next=outs[0];
+      if(outs.length>1){
+        const inDir=[e.b[0]-e.a[0],e.b[1]-e.a[1]];
+        let best=-Infinity;
+        for(const o of outs){const d=[o.b[0]-o.a[0],o.b[1]-o.a[1]];
+          const cross=inDir[0]*d[1]-inDir[1]*d[0]; if(cross>best){best=cross;next=o;}}
+      }
+      e=next;
+      if(kp(e.a)===kp(e0.a)&&loop.length>1){break;}
+    }
+    if(loop.length>=4)loops.push(loop);
+  }
+  return loops;
+}
+// converte loop in coord mappa + smoothing angoli con jitter
+function mapPt(gx,gy){return [M+gx*CELL, M+gy*CELL];}
+function loopToPath(loop,round,jit){
+  const pts=loop.map(([gx,gy])=>{const [x,y]=mapPt(gx,gy);return [x+ (jit?rr(-jit,jit):0), y+(jit?rr(-jit,jit):0)];});
+  const n=pts.length;let d='';
+  for(let i=0;i<n;i++){
+    const p=pts[i],prev=pts[(i-1+n)%n],next=pts[(i+1)%n];
+    const inV=norm([p[0]-prev[0],p[1]-prev[1]]),outV=norm([next[0]-p[0],next[1]-p[1]]);
+    const r1=Math.min(round,dist(prev,p)/2),r2=Math.min(round,dist(p,next)/2);
+    const a=[p[0]-inV[0]*r1,p[1]-inV[1]*r1], b=[p[0]+outV[0]*r2,p[1]+outV[1]*r2];
+    if(i===0)d+=`M${f(a)} `;
+    else d+=`L${f(a)} `;
+    d+=`Q${f(p)} ${f(b)} `;
+  }
+  return d+'Z';
+}
+const norm=v=>{const l=Math.hypot(v[0],v[1])||1;return [v[0]/l,v[1]/l];};
+const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+const f=p=>`${p[0].toFixed(1)},${p[1].toFixed(1)}`;
+
+/* ===================== GENERATORE NOMI ===================== */
+const NAMEBITS={
+  pre:['San','Santa','Porto','Castel','Monte','Villa','Borgo','Ponte','Torre','Colle','Val','Ca\''],
+  root:['ald','savr','corel','mont','vald','aster','fior','cael','ombr','sol','bran','esper','luc','sarn','tre','marev','oldr','cass'],
+  suf:['ano','ora','etta','ino','aglia','esco','onte','ea','ora','iano','usa','ento'],
+};
+function coin(bits){return cap(pick(bits.pre? bits.pre:NAMEBITS.pre));}
+function placeName(){
+  const style=RND();
+  if(style<0.4)return cap(pick(NAMEBITS.pre))+' '+cap(pick(NAMEBITS.root)+pick(NAMEBITS.suf));
+  if(style<0.75)return cap(pick(NAMEBITS.root)+pick(NAMEBITS.suf));
+  return cap(pick(NAMEBITS.root)+pick(NAMEBITS.suf))+' '+cap(pick(NAMEBITS.root)+pick(NAMEBITS.suf));
+}
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+function cityName(){return cap(pick(NAMEBITS.pre))+' '+cap(pick(NAMEBITS.root)+pick(NAMEBITS.suf));}
+// nome contestuale per categoria
+function nameFor(cat){
+  const nm=placeName();
+  const t={chiesa:'Chiesa di '+nm,cimitero:'Cimitero di '+nm,monumento:'Monumento a '+nm,
+    municipio:'Palazzo '+nm,piazza:'Piazza '+nm,torre:'Torre '+nm,mercato:'Mercato di '+nm,
+    stazione:'Stazione '+nm,porto:'Porto '+nm,ponte:'Ponte '+nm,porta:'Porta '+nm,
+    biblioteca:'Biblioteca '+nm,teatro:'Teatro '+nm,giardino:'Giardino '+nm,
+    fontana:'Fontana di '+nm,osteria:'Osteria '+nm,bottega:'Bottega '+nm,locale:'Locale '+nm};
+  return t[cat]||nm;
+}
+const MICRO={
+  classico:{chiesa:'raccoglimento tra navate antiche',piazza:'cuore civile della citta\'',mercato:'voci e banchi al mattino',
+    teatro:'sipario di velluto e stucchi',giardino:'ombra e sentieri ordinati',_def:'una tappa della citta\' vecchia'},
+  culturale:{chiesa:'silenzio e affreschi da studiare',biblioteca:'sale di lettura e manoscritti',teatro:'prosa e concerti da camera',_def:'luogo colto da attraversare piano'},
+  festaiolo:{locale:'musica fino a tarda notte',piazza:'brindisi e folla festante',osteria:'tavolate lunghe e vino',_def:'tappa vivace del giro'},
+  rilassante:{giardino:'panchine e passi lenti',fontana:'acqua che scorre in pace',_def:'sosta tranquilla lontano dal chiasso'},
+  avventura:{porta:'soglia verso l\'ignoto',ponte:'passaggio sospeso sull\'acqua',torre:'vedetta sui confini',_def:'punto aspro ai margini'},
+};
+function microFor(cat,char){const m=MICRO[char]||MICRO.classico;return m[cat]||m._def;}
+
+/* ===================== RETE STRADALE ===================== */
+function segCrossesWater(a,b,waterSet,bridges){
+  // campiona il segmento in coord griglia; true se passa su acqua senza ponte vicino
+  const steps=14;
+  for(let i=1;i<steps;i++){
+    const t=i/steps;const gx=a.gx+(b.gx-a.gx)*t, gy=a.gy+(b.gy-a.gy)*t;
+    const r=Math.floor(gy),c=Math.floor(gx);
+    if(r<0||r>=N||c<0||c>=N)continue;
+    if(waterSet.has(cellKey(r,c))){
+      const nearBridge=bridges.some(br=>Math.abs(br.r-r)<=1&&Math.abs(br.c-c)<=1);
+      if(!nearBridge)return true;
+    }
+  }
+  return false;
+}
+function buildRoads(nodes,waterSet,bridges){
+  // MST (Prim) con penalita' attraversamento acqua
+  if(nodes.length<2)return {edges:[],crossings:[]};
+  const inTree=[0];const rest=nodes.map((_,i)=>i).slice(1);const edges=[],crossings=[];
+  while(rest.length){
+    let best=null;
+    for(const a of inTree)for(const b of rest){
+      let w=dist([nodes[a].x,nodes[a].y],[nodes[b].x,nodes[b].y]);
+      const cross=segCrossesWater(nodes[a],nodes[b],waterSet,bridges);
+      if(cross)w*=6;
+      if(!best||w<best.w)best={a,b,w,cross};
+    }
+    edges.push([best.a,best.b]);
+    if(best.cross)crossings.push([best.a,best.b]);
+    inTree.push(best.b);rest.splice(rest.indexOf(best.b),1);
+  }
+  return {edges,crossings};
+}
+
+/* ===================== RENDER MAPPA ===================== */
+let lastSVG='';
+function generate(){
+  const P=PALETTES[document.getElementById('character').value]||PALETTES.classico;
+  const char=document.getElementById('character').value;
+  // seed deterministico da scacchiera + carattere + jolly
+  const seed=hashStr(JSON.stringify(grid)+char+jollyText.join('|'));
+  RND=mulberry32(seed||1);
+
+  const feats=analyzeTerrain();
+  const waterSet=waterCellSet();
+  const water=hasAnyWater();
+
+  // raccogli luoghi (con eventuale filtro condizionale) e jolly, in ordine
+  const placed=[];
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const v=grid[r][c];if(!v)continue;
+    if(v.kind==='place'){
+      if(CAT[v.cat].needsWater&&!water)continue; // porto senza acqua: ignorato
+      placed.push({r,c,cat:v.cat,ord:v.ord,jolly:false});
+    }else if(v.kind==='jolly'){
+      placed.push({r,c,cat:'jolly',ord:v.ord,jolly:true,label:jollyText[v.j]||('Desiderio '+(v.j+1))});
+    }
+  }
+  placed.sort((a,b)=>a.ord-b.ord);
+  const bridges=placed.filter(p=>p.cat==='ponte').map(p=>({r:p.r,c:p.c}));
+
+  // nodi mappa con jitter deterministico
+  for(const p of placed){
+    p.gx=p.c+0.5+rr(-0.18,0.18); p.gy=p.r+0.5+rr(-0.18,0.18);
+    [p.x,p.y]=mapPt(p.gx,p.gy);
+    p.name=p.jolly?jollyTitle(p.label):nameFor(p.cat);
+  }
+
+  const roads=buildRoads(placed,waterSet,bridges);
+
+  // ---- costruzione SVG ----
+  let s='';
+  s+=`<svg xmlns="http://www.w3.org/2000/svg" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}" font-family="Iowan Old Style, Palatino, Georgia, serif">`;
+  s+=defs(P);
+  // sfondo carta
+  s+=`<rect width="${SVGW}" height="${SVGH}" fill="${P.paper}"/>`;
+  s+=`<rect width="${SVGW}" height="${SVGH}" fill="url(#grain)"/>`;
+  // cornice area mappa
+  s+=`<rect x="${M-18}" y="${M-18}" width="${N*CELL+36}" height="${N*CELL+36}" fill="none" stroke="${P.frame}" stroke-width="3"/>`;
+  s+=`<rect x="${M-24}" y="${M-24}" width="${N*CELL+48}" height="${N*CELL+48}" fill="none" stroke="${P.frame}" stroke-width="1"/>`;
+
+  // ---- terreno ----
+  s+=renderTerrain(feats,P);
+  // ---- tessuto residenziale (celle vuote non-acqua) ----
+  s+=renderResidential(waterSet,P);
+  // ---- quartieri ----
+  s+=renderDistricts(placed,P);
+  // ---- strade ----
+  s+=renderRoads(placed,roads,P);
+  // ---- luoghi (icone + nomi) ----
+  s+=renderPlaces(placed,P);
+  // ---- rosa dei venti ----
+  s+=compass(M+N*CELL-60,M+50,P);
+  // ---- pannello legenda/itinerario ----
+  s+=renderSidebar(placed,feats,char,P,water);
+
+  s+='</svg>';
+  lastSVG=s;
+  document.getElementById('mapHost').innerHTML=s;
+  setStatus(`Mappa generata · ${placed.length} luoghi · ${feats.length} elementi di terreno.`);
+}
+
+function jollyTitle(label){
+  // trasforma etichetta libera in un nome-luogo
+  const nm=placeName();
+  return cap(label.split(/\s+/).slice(0,3).join(' '))+' — '+nm;
+}
+
+function defs(P){
+  return `<defs>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" result="n"/>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.05 0"/></filter>
+    <filter id="rough"><feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="2" result="t"/>
+      <feDisplacementMap in="SourceGraphic" in2="t" scale="4"/></filter>
+    <pattern id="water" width="14" height="14" patternUnits="userSpaceOnUse">
+      <rect width="14" height="14" fill="${P.water}"/>
+      <path d="M0 10 Q3.5 7 7 10 T14 10" fill="none" stroke="${P.waterLn}" stroke-width="0.7" opacity="0.6"/></pattern>
+    <pattern id="blocks" width="22" height="22" patternUnits="userSpaceOnUse" patternTransform="rotate(6)">
+      <rect width="22" height="22" fill="none"/>
+      <rect x="2" y="2" width="7" height="7" fill="none" stroke="${P.road2}" stroke-width="0.6" opacity="0.5"/>
+      <rect x="12" y="3" width="6" height="8" fill="none" stroke="${P.road2}" stroke-width="0.6" opacity="0.5"/>
+      <rect x="3" y="12" width="8" height="6" fill="none" stroke="${P.road2}" stroke-width="0.6" opacity="0.5"/>
+      <rect x="13" y="13" width="6" height="6" fill="none" stroke="${P.road2}" stroke-width="0.6" opacity="0.5"/></pattern>
+  </defs>`;
+}
+
+function renderTerrain(feats,P){
+  let s='';
+  // acqua sotto tutto
+  for(const ft of feats.filter(f=>f.terrain==='water')){
+    if(ft.cells.length===1){
+      const [r,c]=ft.cells[0];const [x,y]=mapPt(c+0.5,r+0.5);
+      s+=`<ellipse cx="${x}" cy="${y}" rx="${CELL*0.28}" ry="${CELL*0.22}" fill="url(#water)" stroke="${P.waterLn}" stroke-width="1.2"/>`;
+      s+=label(x,y+CELL*0.34,ft.cls,P,9,'italic');
+      continue;
+    }
+    for(const loop of traceOutline(ft.cells)){
+      s+=`<path d="${loopToPath(loop,10,2)}" fill="url(#water)" stroke="${P.waterLn}" stroke-width="1.6"/>`;
+    }
+    const cen=centroid(ft.cells);
+    s+=label(cen[0],cen[1],ft.cls.toUpperCase(),P.waterLn,11,'italic',true);
+  }
+  // rilievi
+  for(const ft of feats.filter(f=>f.terrain==='mountain'||f.terrain==='hill')){
+    const isMt=ft.terrain==='mountain';
+    for(const loop of traceOutline(ft.cells)){
+      s+=`<path d="${loopToPath(loop,14,2)}" fill="${isMt?P.relief:P.green}" opacity="0.18"/>`;
+    }
+    for(const [r,c] of ft.cells){
+      const [x,y]=mapPt(c+0.5,r+0.5);
+      s+= isMt?mountainGlyph(x,y,P):hillGlyph(x,y,P);
+    }
+    const cen=centroid(ft.cells);
+    s+=label(cen[0],cen[1]+8,ft.cls.toUpperCase(),isMt?P.relief:'#5f7a3a',10,'italic',true);
+  }
+  return s;
+}
+function mountainGlyph(x,y,P){
+  return `<g stroke="${P.relief}" stroke-width="1.4" fill="none" stroke-linejoin="round">
+    <path d="M${x-20} ${y+14} L${x-6} ${y-14} L${x+4} ${y+2} L${x+12} ${y-8} L${x+22} ${y+14} Z"/>
+    <path d="M${x-6} ${y-14} L${x-10} ${y-2} M${x+12} ${y-8} L${x+9} ${y-1}" stroke-width="0.9"/></g>`;
+}
+function hillGlyph(x,y,P){
+  return `<g stroke="${P.green}" stroke-width="1.3" fill="none"><path d="M${x-18} ${y+8} Q${x-6} ${y-8} ${x+3} ${y+6} Q${x+9} ${y-4} ${x+18} ${y+8}"/></g>`;
+}
+
+function renderResidential(waterSet,P){
+  const empty=[];
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    if(grid[r][c]===null && !waterSet.has(cellKey(r,c)))empty.push([r,c]);
+  }
+  if(!empty.length)return '';
+  let s='';
+  for(const loop of traceOutline(empty)){
+    s+=`<path d="${loopToPath(loop,6,1.5)}" fill="url(#blocks)" stroke="none"/>`;
+  }
+  return s;
+}
+
+function renderDistricts(placed,P){
+  // raggruppa per group; se >=3 luoghi dello stesso group => quartiere
+  const byGroup={};
+  for(const p of placed){if(p.jolly)continue;const g=CAT[p.cat].group;(byGroup[g]??=[]).push(p);}
+  let s='';
+  for(const [g,arr] of Object.entries(byGroup)){
+    if(arr.length<3)continue;
+    const cen=[arr.reduce((a,p)=>a+p.x,0)/arr.length, arr.reduce((a,p)=>a+p.y,0)/arr.length];
+    const rad=Math.max(...arr.map(p=>dist(cen,[p.x,p.y])))+CELL*0.5;
+    s+=`<circle cx="${cen[0].toFixed(1)}" cy="${cen[1].toFixed(1)}" r="${rad.toFixed(1)}" fill="${P.district}" opacity="0.07"/>`;
+    s+=`<circle cx="${cen[0].toFixed(1)}" cy="${cen[1].toFixed(1)}" r="${rad.toFixed(1)}" fill="none" stroke="${P.district}" stroke-width="1" stroke-dasharray="4 4" opacity="0.5"/>`;
+    s+=label(cen[0],cen[1]-rad+14,'Quartiere '+(GROUP_NAME[g]||g),P.district,11,'italic',true);
+  }
+  return s;
+}
+
+function renderRoads(placed,roads,P){
+  let s='';
+  const crossSet=new Set(roads.crossings.map(e=>e.join('-')));
+  for(const [ai,bi] of roads.edges){
+    const a=placed[ai],b=placed[bi];
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    const off=CELL*rr(-0.18,0.18);
+    const nx=-(b.y-a.y),ny=(b.x-a.x);const nl=Math.hypot(nx,ny)||1;
+    const cx=mx+nx/nl*off, cy=my+ny/nl*off;
+    s+=`<path d="M${a.x.toFixed(1)} ${a.y.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}" fill="none" stroke="${P.road}" stroke-width="4.5" stroke-linecap="round" opacity="0.9" filter="url(#rough)"/>`;
+    s+=`<path d="M${a.x.toFixed(1)} ${a.y.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}" fill="none" stroke="${P.paper}" stroke-width="1.1" stroke-dasharray="1 5" stroke-linecap="round" opacity="0.5"/>`;
+    if(crossSet.has([ai,bi].join('-'))){ // ponte sul punto medio
+      s+=`<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)})" stroke="${P.ink}" stroke-width="1.4" fill="none"><path d="M-9 4 Q0 -7 9 4"/><path d="M-9 4 v4 M9 4 v4"/></g>`;
+    }
+  }
+  return s;
+}
+
+function renderPlaces(placed,P){
+  let s='';
+  for(const p of placed){
+    s+=`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="14" fill="${P.paper2}" stroke="${P.ink}" stroke-width="1.4"/>`;
+    s+=`<g transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})" stroke="${P.ink}" fill="${P.ink}">${p.jolly?jollyIcon():iconSVG(CAT[p.cat].icon)}</g>`;
+    // pallino ordine itinerario
+    s+=`<circle cx="${(p.x+11).toFixed(1)}" cy="${(p.y-11).toFixed(1)}" r="8" fill="${P.district}" stroke="${P.ink}" stroke-width="0.8"/>`;
+    s+=`<text x="${(p.x+11).toFixed(1)}" y="${(p.y-8).toFixed(1)}" font-size="10" text-anchor="middle" fill="${P.ink}" font-family="system-ui,sans-serif" font-weight="700">${p.ord}</text>`;
+    // etichetta nome
+    s+=label(p.x,p.y+27,p.name,P.ink,10.5,'normal',false,true);
+  }
+  return s;
+}
+
+/* ---- icone SVG luoghi (glifi lineari ~24px centrati) ---- */
+function iconSVG(k){
+  const S={
+    church:'<path d="M0 -11 v5 M-2.5 -8.5 h5" stroke-width="1.3"/><path d="M-6 8 v-9 l6 -5 l6 5 v9 Z" fill="none" stroke-width="1.3"/><rect x="-2" y="2" width="4" height="6" fill="none" stroke-width="1"/>',
+    grave:'<path d="M-5 8 v-9 a5 5 0 0 1 10 0 v9 Z" fill="none" stroke-width="1.3"/><path d="M0 -4 v6 M-3 -1 h6" stroke-width="1.1"/>',
+    obelisk:'<path d="M-3 8 L-1.5 -8 L1.5 -8 L3 8 Z" fill="none" stroke-width="1.3"/>',
+    townhall:'<path d="M-8 8 h16 M-7 8 v-7 M-3.5 8 v-7 M0 8 v-7 M3.5 8 v-7 M7 8 v-7" stroke-width="1.2"/><path d="M-9 1 L0 -8 L9 1 Z" fill="none" stroke-width="1.2"/>',
+    square:'<rect x="-8" y="-8" width="16" height="16" rx="2" fill="none" stroke-width="1.2"/><circle cx="0" cy="0" r="2.2" fill="none" stroke-width="1"/>',
+    tower:'<path d="M-4 8 v-14 h8 v14 Z" fill="none" stroke-width="1.3"/><path d="M-4 -6 h2 v-2 h2 v2 h2" stroke-width="1"/>',
+    market:'<path d="M-9 -2 h18 l-2 -5 h-14 Z" fill="none" stroke-width="1.2"/><path d="M-7 -2 v10 M7 -2 v10 M-7 8 h14" stroke-width="1.1"/>',
+    station:'<rect x="-8" y="-6" width="16" height="12" rx="2" fill="none" stroke-width="1.2"/><circle cx="0" cy="0" r="3" fill="none" stroke-width="1"/><path d="M-8 9 h16" stroke-width="1.4"/>',
+    anchor:'<circle cx="0" cy="-7" r="2.5" fill="none" stroke-width="1.2"/><path d="M0 -4 v11 M-6 3 a6 6 0 0 0 12 0 M-4 0 h8" stroke-width="1.3" fill="none"/>',
+    bridge:'<path d="M-9 3 Q0 -8 9 3" fill="none" stroke-width="1.4"/><path d="M-9 3 v4 M9 3 v4 M-4 0 v6 M4 0 v6" stroke-width="1"/>',
+    gate:'<path d="M-8 8 v-9 a8 8 0 0 1 16 0 v9" fill="none" stroke-width="1.3"/><path d="M-8 8 h-1 v-4 M8 8 h1 v-4" stroke-width="1.2"/>',
+    book:'<path d="M0 -6 v13 M-9 -6 q4.5 -2 9 0 q4.5 -2 9 0 v13 q-4.5 -2 -9 0 q-4.5 -2 -9 0 Z" fill="none" stroke-width="1.2"/>',
+    theatre:'<path d="M-8 -5 a8 9 0 0 0 8 12 a8 9 0 0 0 8 -12 Z" fill="none" stroke-width="1.2"/><path d="M-4 -2 a1 1 0 0 0 2 0 M2 -2 a1 1 0 0 0 2 0 M-3 3 q3 3 6 0" stroke-width="1"/>',
+    tree:'<path d="M0 8 v-6" stroke-width="1.3"/><circle cx="0" cy="-3" r="6" fill="none" stroke-width="1.2"/>',
+    fountain:'<path d="M-8 8 h16 M-6 8 v-3 h12 v3 M0 5 v-6" stroke-width="1.2" fill="none"/><path d="M0 -6 q-4 2 -4 5 M0 -6 q4 2 4 5" stroke-width="1"/>',
+    mug:'<path d="M-5 -5 h8 v11 h-8 Z M3 -3 h4 v6 h-4" fill="none" stroke-width="1.3"/><path d="M-5 -2 h8" stroke-width="1"/>',
+    hammer:'<path d="M-6 -6 h8 v4 h-8 Z" fill="none" stroke-width="1.2"/><path d="M-2 -2 L4 8" stroke-width="1.6"/>',
+    note:'<circle cx="-3" cy="7" r="3" fill="none" stroke-width="1.2"/><path d="M0 7 v-13 l7 2 v3" fill="none" stroke-width="1.2"/>',
+  };
+  return S[k]||'<circle r="4" fill="none" stroke-width="1.2"/>';
+}
+function jollyIcon(){return '<path d="M0 -9 L2.6 -2.8 L9 -2.8 L3.8 1.4 L5.9 8 L0 3.9 L-5.9 8 L-3.8 1.4 L-9 -2.8 L-2.6 -2.8 Z" fill="none" stroke-width="1.2"/>';}
+
+/* ---- rosa dei venti ---- */
+function compass(x,y,P){
+  return `<g transform="translate(${x},${y})" stroke="${P.ink}" fill="${P.ink}">
+    <circle r="22" fill="none" stroke-width="1"/><circle r="16" fill="none" stroke-width="0.6"/>
+    <path d="M0 -20 L4 0 L0 6 L-4 0 Z" fill="${P.ink}"/><path d="M0 20 L4 0 L-4 0 Z" fill="none" stroke-width="0.8"/>
+    <text x="0" y="-24" font-size="9" text-anchor="middle" font-family="system-ui,sans-serif">N</text></g>`;
+}
+
+/* ---- helper testo ---- */
+function label(x,y,txt,color,size,style,shadow,box){
+  size=size||11;style=style||'normal';
+  let s='';
+  if(box){ // etichetta luogo con alone chiaro
+    const w=txt.length*size*0.52+8;
+    s+=`<rect x="${(x-w/2).toFixed(1)}" y="${(y-size).toFixed(1)}" width="${w.toFixed(1)}" height="${(size+4).toFixed(1)}" fill="#00000000"/>`;
+    s+=`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${size}" text-anchor="middle" fill="${color}" font-style="${style}" stroke="#ffffff" stroke-width="2.4" paint-order="stroke" opacity="0.95">${esc(txt)}</text>`;
+    return s;
+  }
+  return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-size="${size}" text-anchor="middle" fill="${color}" font-style="${style}" ${shadow?'letter-spacing="1.5"':''}>${esc(txt)}</text>`;
+}
+function esc(s){return String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));}
+function centroid(cells){let x=0,y=0;for(const[r,c]of cells){const[px,py]=mapPt(c+0.5,r+0.5);x+=px;y+=py;}return[x/cells.length,y/cells.length];}
+
+/* ---- pannello legenda + itinerario ---- */
+function renderSidebar(placed,feats,char,P,water){
+  const X=MAPW+24;let y=M+6;let s='';
+  s+=`<line x1="${MAPW}" y1="20" x2="${MAPW}" y2="${SVGH-20}" stroke="${P.frame}" stroke-width="1" opacity="0.5"/>`;
+  const city=cityName();
+  s+=`<text x="${X}" y="${y}" font-size="26" fill="${P.ink}" font-style="italic">${esc(city)}</text>`;y+=22;
+  s+=`<text x="${X}" y="${y}" font-size="11" fill="${P.ink}" opacity="0.7" font-family="system-ui,sans-serif" letter-spacing="2">CARTA DI VIAGGIO · ${char.toUpperCase()}</text>`;y+=24;
+  s+=`<line x1="${X}" y1="${y-8}" x2="${SVGW-30}" y2="${y-8}" stroke="${P.frame}" stroke-width="0.8"/>`;
+
+  // itinerario
+  s+=`<text x="${X}" y="${y+8}" font-size="14" fill="${P.ink}" font-style="italic">Giornata tipo</text>`;y+=22;
+  const itin=placed.slice().sort((a,b)=>a.ord-b.ord);
+  for(const p of itin){
+    if(y>SVGH-120)break;
+    s+=`<circle cx="${X+6}" cy="${y-3}" r="8" fill="${P.district}" stroke="${P.ink}" stroke-width="0.7"/>`;
+    s+=`<text x="${X+6}" y="${y}" font-size="10" text-anchor="middle" fill="${P.ink}" font-family="system-ui,sans-serif" font-weight="700">${p.ord}</text>`;
+    s+=`<text x="${X+20}" y="${y-1}" font-size="12" fill="${P.ink}">${esc(clip(p.name,26))}</text>`;
+    const micro=p.jolly?(p.label||'desiderio del viaggiatore'):microFor(p.cat,char);
+    s+=`<text x="${X+20}" y="${y+11}" font-size="9.5" fill="${P.ink}" opacity="0.7" font-style="italic">${esc(clip(micro,40))}</text>`;
+    y+=28;
+  }
+  // legenda terreno
+  y=Math.max(y+6,SVGH-96);
+  s+=`<line x1="${X}" y1="${y-14}" x2="${SVGW-30}" y2="${y-14}" stroke="${P.frame}" stroke-width="0.8"/>`;
+  s+=`<text x="${X}" y="${y}" font-size="12" fill="${P.ink}" font-style="italic">Morfologia</text>`;y+=16;
+  const kinds=[...new Set(feats.map(f=>f.cls))];
+  if(!kinds.length)s+=`<text x="${X}" y="${y}" font-size="10" fill="${P.ink}" opacity="0.6">nessun elemento di terreno</text>`;
+  let lx=X;
+  for(const k of kinds){
+    s+=`<text x="${lx}" y="${y}" font-size="10" fill="${P.ink}" opacity="0.8">• ${esc(k)}</text>`;
+    lx+= (k.length*6+30); if(lx>SVGW-90){lx=X;y+=15;}
+  }
+  return s;
+}
+function clip(s,n){s=String(s);return s.length>n?s.slice(0,n-1)+'…':s;}
+
+/* ===================== REGIA / PULSANTI ===================== */
+let genTimer=null;
+function scheduleGen(){clearTimeout(genTimer);genTimer=setTimeout(generate,120);}
+function setStatus(t){document.getElementById('status').textContent=t;}
+
+document.getElementById('btnGen').onclick=()=>{setStatus('Il cartografo consulta l\'atlante…');setTimeout(generate,260);};
+document.getElementById('btnClear').onclick=()=>{grid=emptyGrid();order=0;renderGrid();generate();};
+document.getElementById('btnPrint').onclick=()=>window.print();
+document.getElementById('btnExport').onclick=()=>{
+  if(!lastSVG){generate();}
+  const blob=new Blob([lastSVG],{type:'image/svg+xml'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mappa-immaginaria.svg';a.click();
+};
+document.getElementById('character').onchange=generate;
+document.getElementById('btnDemo').onclick=loadDemo;
+
+function loadDemo(){
+  grid=emptyGrid();order=0;
+  const put=(r,c,v)=>{grid[r][c]=v;};
+  // fiume diagonale + un po' di costa + collina
+  put(0,2,{kind:'terrain',terrain:'water'});put(1,2,{kind:'terrain',terrain:'water'});
+  put(2,3,{kind:'terrain',terrain:'water'});put(3,3,{kind:'terrain',terrain:'water'});
+  put(4,4,{kind:'terrain',terrain:'water'});put(5,4,{kind:'terrain',terrain:'water'});
+  put(6,4,{kind:'terrain',terrain:'water'});put(7,4,{kind:'terrain',terrain:'water'});
+  put(0,6,{kind:'terrain',terrain:'hill'});put(0,7,{kind:'terrain',terrain:'hill'});put(1,7,{kind:'terrain',terrain:'hill'});
+  put(6,0,{kind:'terrain',terrain:'mountain'});put(7,0,{kind:'terrain',terrain:'mountain'});put(7,1,{kind:'terrain',terrain:'mountain'});
+  const places=[[2,1,'municipio'],[1,4,'chiesa'],[3,5,'teatro'],[4,2,'mercato'],[5,6,'giardino'],
+    [3,4,'ponte'],[5,1,'osteria'],[6,6,'locale'],[2,6,'torre'],[4,6,'biblioteca']];
+  for(const [r,c,cat] of places)put(r,c,{kind:'place',cat,ord:++order});
+  put(6,2,{kind:'jolly',j:0,ord:++order});jollyText[0]='giostra dei sogni';
+  document.querySelectorAll('#jollyLabels input')[0].value=jollyText[0];
+  renderGrid();generate();
+}
+
+/* ===================== INIT ===================== */
+buildToolbars();wireTools();buildGrid();
+// attiva pennello iniziale
+document.querySelector('[data-tool="place"]').classList.add('active');
+loadDemo();
+</script>
+</body>
+</html>
