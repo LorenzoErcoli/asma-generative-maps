@@ -1,0 +1,823 @@
+"use strict";
+/* =====================================================================
+   TESSUTO — il motore vettoriale unificato: una sola ricorsione produce
+   isolati, strade E edifici come TAGLI dello stesso poligono (mai un
+   secondo passaggio raster che li riconcilia dopo, la causa storica delle
+   "strade sopra i palazzi"). Riceve il poligono città (da world.js, campo
+   di urbanità + marching squares) e produce out.streets/out.buildings/
+   out.reserved. Fiume, ferrovia e ancore (piazza/giardino/cimitero) sono
+   TAGLI VERI dentro la stessa ricorsione, non ritocchi cosmetici dopo.
+   Ponti: nessuna pedina li piazza. Il fiume spacca la città in due meta'
+   generate indipendentemente; DOPO le si ricollega ad agganciando ogni
+   ponte a strade gia' reali su entrambe le rive (autoBridges) — un taglio
+   forzato anticipato su un poligono ancora enorme produceva rette lunghe
+   e senza rapporto con dove serviva davvero il ponte.
+   ===================================================================== */
+
+// aree scalate dalla CELL del prototipo (100) a quella di v2 (110): le
+// soglie sono aree, quindi scalano per il quadrato del rapporto (~1.21).
+const BLOCK_TARGET=2900, BUILDING_TARGET=510, MIN_LEAF=95, MAX_DEPTH=26;
+const MIN_BUILDING_DRAW=180;
+// quanta area del lotto deve restare dentro rectFootprint perche' valga
+// come edificio vero. Sotto, la parte esclusa (out.buildings gia' filtrati
+// in "cortile in verde" qui sotto) diventa giardino o resta cortile aperto.
+const RECT_ACCEPT=.34;
+const RAIL_HW=3.5;
+const LANDMARK_FILL={chiesa:'#8e4a6b',municipio:'#c9967a',mercato:'#b5893f',teatro:'#5a7a92',osteria:'#9c6b3a',bottega:'#7c8a52',
+  monumento:'#8a7a8a',torre:'#6b5a44',stazione:'#5a6b8a',porto:'#4a7a8a',biblioteca:'#4a6b82',fontana:'#6f9ab5',locale:'#9c6b8a'};
+const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',teatro:'apse'};
+
+/* ---------------- forme organiche (piazze/giardini/verde) ----------------
+   rifinitura cosmetica per i due soli casi in cui non si puo' ritagliare un
+   vero N-gono (vedi tryReserveShape): la rete di sicurezza di un'ancora
+   rimasta senza spazio, e il verde autonomo ricavato da un lotto gia'
+   finale. In entrambi i casi i vicini sono gia' fissati, quindi qui
+   l'unica cosa sensata e' un inset abbondante — un vero margine tra il
+   colore e la strada, non solo un contorno mosso. */
+// un inset UNIFORME (stesso fattore in ogni direzione attorno al
+// centroide) presume che il lotto sia grosso modo simmetrico. Su un lotto
+// storto (comune: e' quasi sempre quello che resta dopo un taglio di
+// fiume o un'ancora vicina, mai il piu' regolare) la forma organica esce
+// piu' larga del lotto da un lato — e quel pezzo finisce disegnato sopra
+// la strada o l'edificio accanto, "appiccicato". Ritaglio percio' SEMPRE
+// il risultato contro i veri lati del lotto, con lo stesso margine reale
+// gia' usato per gli edifici: garantisce di restare dentro qualunque sia
+// la forma, l'inset resta solo un punto di partenza ragionevole.
+function clipToPoly(shape,poly,margin){
+  const c=centroid(poly);
+  let out=shape;
+  for(let i=0;i<poly.length&&out.length>=3;i++){
+    const a=poly[i], b=poly[(i+1)%poly.length];
+    const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
+    let nv=[dy/L,-dx/L], offset=a[0]*nv[0]+a[1]*nv[1];
+    if(c[0]*nv[0]+c[1]*nv[1]-offset>0){nv=[-nv[0],-nv[1]];offset=-offset}
+    out=clipHalf(out,nv,offset-margin,false);
+  }
+  return out.length>=3?out:shape;
+}
+function organicBlob(poly,wobbleAmp,phase,inset){
+  const{c,dirVec,nVec,maxA,maxN}=orientedExtent(poly);
+  const k=inset||.9;
+  const rA=maxA*k, rN=maxN*k*.96, steps=16, out=[];
+  for(let i=0;i<steps;i++){
+    const t=i/steps*Math.PI*2;
+    const wob=1+wobbleAmp*Math.sin(t*3+phase)+wobbleAmp*.55*Math.sin(t*5+phase*1.7);
+    out.push(addv(c,dirVec,Math.cos(t)*rA*wob,nVec,Math.sin(t)*rN*wob));
+  }
+  return clipToPoly(out,poly,3);
+}
+// un edificio vero e' quasi sempre un rettangolo, ma il lotto grezzo che
+// esce dalla ricorsione e' spesso un trapezio. Si RIDUCE il rettangolo
+// candidato finche' non ci sta intero, senza che nessun lato del lotto lo
+// tocchi — il primo che ci riesce e' un vero quadrilatero.
+function rectFootprint(poly,maxShrink){
+  const{c,dirVec,nVec,maxA,maxN}=orientedExtent(poly);
+  const MARGIN=Math.min(4,Math.min(maxA,maxN)*.12);
+  let last=null;
+  for(const k of [maxShrink,maxShrink*.82,maxShrink*.66,maxShrink*.5,maxShrink*.36,maxShrink*.24]){
+    let rect=rectAt(c,dirVec,nVec,maxA*k,maxN*k);
+    for(let i=0;i<poly.length&&rect.length>=3;i++){
+      const a=poly[i], b=poly[(i+1)%poly.length];
+      const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
+      let nv=[dy/L,-dx/L], offset=a[0]*nv[0]+a[1]*nv[1];
+      if(c[0]*nv[0]+c[1]*nv[1]-offset>0){nv=[-nv[0],-nv[1]];offset=-offset}
+      rect=clipHalf(rect,nv,offset-MARGIN,false);
+    }
+    if(rect.length>=3)last=rect;
+    if(rect.length===4)return rect;
+  }
+  return last||scalePoly(poly,c,maxShrink*.5);
+}
+function apseShape(c,dirVec,nVec,halfA,halfN,steps){
+  const backA=-halfA*.5, frontA=halfA*.3;
+  const back1=addv(c,dirVec,backA,nVec,-halfN), back2=addv(c,dirVec,backA,nVec,halfN);
+  const front=addv(c,dirVec,frontA,nVec,0);
+  const pts=[back1,back2];
+  for(let i=0;i<=steps;i++){
+    const ang=Math.PI/2-(i/steps)*Math.PI;
+    pts.push(addv(front,dirVec,Math.cos(ang)*halfN,nVec,Math.sin(ang)*halfN));
+  }
+  return pts;
+}
+// stampo del "palazzo importante": ogni tipo produce una o piu' parti
+// calcolate sul rettangolo orientato del lotto che l'edificio ha davvero
+// occupato, mai una forma indipendente dal tessuto sottostante.
+function landmarkFootprint(poly,cat){
+  const{c,dirVec,nVec,maxA,maxN}=orientedExtent(poly);
+  const kind=IMPORTANT_SHAPE[cat];
+  if(!kind)return[{poly:scalePoly(poly,c,.8),hole:null}];
+  if(kind==='courtyard'){
+    const outer=rectAt(c,dirVec,nVec,maxA*.74,maxN*.7);
+    const inner=rectAt(c,dirVec,nVec,maxA*.42,maxN*.38);
+    return[{poly:outer,hole:inner}];
+  }
+  if(kind==='cross'){
+    const nave=rectAt(c,dirVec,nVec,maxA*.76,maxN*.32);
+    const transept=rectAt(c,dirVec,nVec,maxA*.32,maxN*.74);
+    return[{poly:nave,hole:null},{poly:transept,hole:null}];
+  }
+  if(kind==='apse')return[{poly:apseShape(c,dirVec,nVec,maxA*.74,maxN*.66,10),hole:null}];
+  return[{poly:scalePoly(poly,c,.88),hole:null}];
+}
+
+/* ---------------- fiume: query locale, sponde curve, taglio ---------------- */
+function riverAt(river,p){
+  let best=null;
+  for(let i=0;i<river.pts.length-1;i++){
+    const a=river.pts[i], b=river.pts[i+1];
+    const dx=b[0]-a[0], dy=b[1]-a[1], L2=dx*dx+dy*dy||1e-9;
+    let t=((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L2; t=Math.max(0,Math.min(1,t));
+    const q=[a[0]+dx*t,a[1]+dy*t], d=dist(p,q);
+    if(!best||d<best.d){
+      const L=Math.sqrt(L2), tan=[dx/L,dy/L], nv=[-tan[1],tan[0]];
+      const side=(p[0]-q[0])*nv[0]+(p[1]-q[1])*nv[1];
+      best={d,side,hw:river.hw[i]+(river.hw[i+1]-river.hw[i])*t,q,tan,nv};
+    }
+  }
+  return best;
+}
+// una CORDA DRITTA, per quanto accorciata, non puo' seguire una curva
+// oltre una certa distanza. Il rimedio non e' accorciare ancora, e' non
+// usare piu' una retta: la lungofiume ricalca i punti veri dell'asse del
+// fiume, scostati della semilarghezza locale, dentro un raggio dal punto
+// d'origine — curva quando il fiume curva.
+function curvedBank(river,center,side,radius){
+  const pts=[];
+  for(let i=0;i<river.pts.length;i++){
+    if(dist(river.pts[i],center)>radius)continue;
+    const a=river.pts[Math.max(0,i-1)], b=river.pts[Math.min(river.pts.length-1,i+1)];
+    const tv=norm([b[0]-a[0],b[1]-a[1]]), nv=[-tv[1],tv[0]];
+    pts.push([river.pts[i][0]+nv[0]*river.hw[i]*side,river.pts[i][1]+nv[1]*river.hw[i]*side]);
+  }
+  return pts.length>=2?pts:null;
+}
+// TENTATIVO FALLITO, per la cronaca: tagliare il poligono a segmenti contro
+// la polilinea vera della riva (invece che contro un'unica retta) sembrava
+// la correzione giusta per gli spiazzi vuoti lungo il fiume — ma tagliare
+// in sequenza contro tanti segmenti equivale a intersecare tanti semipiani,
+// che approssima l'INVILUPPO CONVESSO della curva, non la curva stessa. Su
+// un fiume che serpeggia (non convesso) il risultato taglia via molta piu'
+// terra reale di quanta ne tagliasse la singola retta — dal 18% al 80% di
+// suolo scoperto vicino al fiume, peggio del problema che doveva risolvere.
+// Serve una vera intersezione poligono-contro-polilinea (tipo Weiler-
+// Atherton), non una sequenza di clipHalf. Non implementata: il rischio di
+// un altro bug silenzioso non valeva un secondo tentativo improvvisato.
+// Si torna al taglio a retta singola, imperfetto ma sicuro.
+function trimRiver(poly,river){
+  if(!river)return{poly,quays:[]};
+  const info=riverAt(river,centroid(poly));
+  const nVec=info.nv, offset=info.q[0]*nVec[0]+info.q[1]*nVec[1], hwL=info.hw;
+  const proj=poly.map(v=>v[0]*nVec[0]+v[1]*nVec[1]-offset);
+  const lo=Math.min(...proj),hi=Math.max(...proj), lb=-hwL, hb=hwL;
+  if(hi<=lb||lo>=hb)return{poly,quays:[]};
+  if(lo>=lb&&hi<=hb){
+    // il centroide puo' cadere proprio su un'ansa stretta del fiume: li'
+    // l'approssimazione lineare (una sola normale/semilarghezza per tutto
+    // il poligono) puo' dichiarare "tutto sommerso" anche se il poligono
+    // include vera terraferma poco piu' in la' lungo la curva. Buttarlo
+    // via alla cieca lasciava un vuoto vero sulla mappa — verifico percio'
+    // ogni vertice con la SUA riva locale prima di arrendermi.
+    const reallySubmerged=poly.every(v=>{const iv=riverAt(river,v);return Math.abs(iv.side)<=iv.hw});
+    if(reallySubmerged)return{poly:null,quays:[]};
+    return{poly,quays:[]};
+  }
+  const loAbs=offset+lb, hiAbs=offset+hb, qr=140;
+  const crossesLow=lo<lb&&hi>lb, crossesHigh=lo<hb&&hi>hb;
+  if(crossesLow&&crossesHigh){
+    const qL=curvedBank(river,info.q,-1,qr), qH=curvedBank(river,info.q,1,qr);
+    const leftBank=clipHalf(poly,nVec,loAbs,false), rightBank=clipHalf(poly,nVec,hiAbs,true);
+    return{split:true,leftBank,rightBank,quays:[qL,qH].filter(Boolean)};
+  }
+  if(crossesLow){const q=curvedBank(river,info.q,-1,qr);return{poly:clipHalf(poly,nVec,loAbs,false),quays:q?[q]:[]}}
+  if(crossesHigh){const q=curvedBank(river,info.q,1,qr);return{poly:clipHalf(poly,nVec,hiAbs,true),quays:q?[q]:[]}}
+  return{poly,quays:[]};
+}
+function segCrossesRiver(a,b,river){
+  if(!river)return null;
+  const steps=30; let firstIn=-1,lastIn=-1;
+  for(let i=0;i<=steps;i++){
+    const t=i/steps, p=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+    const info=riverAt(river,p);
+    if(Math.abs(info.side)<info.hw){if(firstIn<0)firstIn=i;lastIn=i}
+  }
+  if(firstIn<0)return null;
+  const tm=(firstIn+lastIn)/2/steps;
+  return[a[0]+(b[0]-a[0])*tm,a[1]+(b[1]-a[1])*tm];
+}
+
+/* ---------------- ferrovia: stessa fascia-senza-edifici del fiume ---------------- */
+function nearestOnPoly(poly,p){
+  let best=null;
+  for(let i=0;i<poly.length;i++){
+    const a=poly[i], b=poly[(i+1)%poly.length];
+    const dx=b[0]-a[0], dy=b[1]-a[1], L2=dx*dx+dy*dy||1e-9;
+    let t=((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L2; t=Math.max(0,Math.min(1,t));
+    const q=[a[0]+dx*t,a[1]+dy*t], d=dist(p,q);
+    if(!best||d<best.d)best={q,d};
+  }
+  return best.q;
+}
+function railBand(a,b,hw){
+  const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
+  const dirVec=[dx/L,dy/L], nVec=[-dirVec[1],dirVec[0]];
+  const offset=a[0]*nVec[0]+a[1]*nVec[1], alongA=a[0]*dirVec[0]+a[1]*dirVec[1];
+  return{dirVec,nVec,offset,hw,alongA,alongB:alongA+L,a,b};
+}
+function trimRailSeg(poly,band,margin){
+  const proj=poly.map(v=>v[0]*band.nVec[0]+v[1]*band.nVec[1]-band.offset);
+  const lo=Math.min(...proj), hi=Math.max(...proj), lb=-band.hw, hb=band.hw;
+  if(hi<=lb||lo>=hb)return{poly};
+  const alongProj=poly.map(v=>v[0]*band.dirVec[0]+v[1]*band.dirVec[1]);
+  const aLo=Math.min(...alongProj), aHi=Math.max(...alongProj);
+  if(aHi<band.alongA-margin||aLo>band.alongB+margin)return{poly};
+  if(lo>=lb&&hi<=hb)return{poly:null};
+  const loAbs=band.offset+lb, hiAbs=band.offset+hb;
+  const crossesLow=lo<lb&&hi>lb, crossesHigh=lo<hb&&hi>hb;
+  if(crossesLow&&crossesHigh){
+    const leftBank=clipHalf(poly,band.nVec,loAbs,false), rightBank=clipHalf(poly,band.nVec,hiAbs,true);
+    return{split:true,leftBank,rightBank,sides:[...sliceLine(poly,band.nVec,loAbs),...sliceLine(poly,band.nVec,hiAbs)]};
+  }
+  if(crossesLow)return{poly:clipHalf(poly,band.nVec,loAbs,false),sides:sliceLine(poly,band.nVec,loAbs)};
+  if(crossesHigh)return{poly:clipHalf(poly,band.nVec,hiAbs,true),sides:sliceLine(poly,band.nVec,hiAbs)};
+  return{poly};
+}
+// un binario vero non e' mai un righello: curva appena, con un unico arco
+// dolce tra due punti (mai piu' di qualche punto percento della lunghezza)
+// — abbastanza per non leggersi come una retta forzata, troppo poco per
+// sembrare un tracciato impossibile da posare davvero.
+function curvedTrack(a,b,bow){
+  const L=dist(a,b);
+  // pochi pezzi lunghi, non tanti corti: ogni pezzo genera la propria
+  // fascia "senza edifici" nella ricorsione (railBand), e fasce vicine si
+  // sovrappongono ai margini — troppi pezzi ravvicinati (curva morbida ma
+  // frazionata) producevano bande quasi identiche registrate piu' volte,
+  // proprio la confusione vista intorno alle stazioni. La curva resta
+  // dolce comunque: l'arco e' un solo seno, pochi punti bastano.
+  const n=Math.max(3,Math.round(L/90));
+  const dx=b[0]-a[0], dy=b[1]-a[1];
+  const nx=-dy/(L||1), ny=dx/(L||1);
+  const pts=[];
+  for(let i=0;i<=n;i++){
+    const t=i/n, off=bow*Math.sin(Math.PI*t);
+    pts.push([a[0]+dx*t+nx*off, a[1]+dy*t+ny*off]);
+  }
+  const segs=[];
+  for(let i=0;i<pts.length-1;i++)segs.push([pts[i],pts[i+1]]);
+  return segs;
+}
+const trackBow=L=>rr(-1,1)*Math.min(38,L*.07);
+function buildRail(stations,cityPoly){
+  const pts=stations.map(s=>[s.x,s.y]);
+  // ritorna la corsa intera dalla stazione al bordo citta' (leggermente
+  // curva) piu' un breve tratto decorativo oltre il bordo.
+  const extendOut=(i,dirFrom)=>{
+    const dir=[pts[i][0]-dirFrom[0],pts[i][1]-dirFrom[1]];
+    const L=Math.hypot(dir[0],dir[1])||1, u=[dir[0]/L,dir[1]/L];
+    const edge=nearestOnPoly(cityPoly,[pts[i][0]+u[0]*MAPW,pts[i][1]+u[1]*MAPW]);
+    const tail=[edge[0]+u[0]*44,edge[1]+u[1]*44];
+    return[...curvedTrack(pts[i],edge,trackBow(dist(pts[i],edge))),[edge,tail]];
+  };
+  if(pts.length===1){
+    // anche con una sola stazione la ferrovia e' una linea che ATTRAVERSA
+    // la citta', non un'appendice che si ferma a meta': entra da un lato
+    // ed esce dall'altro, con la stazione lungo il percorso. La direzione
+    // segue l'asse lungo della citta' — il modo piu' comodo per il sistema
+    // di posare un tracciato plausibile senza altre stazioni da collegare.
+    const ang=axisAngle(cityPoly)+rr(-.18,.18);
+    const dir=[Math.cos(ang),Math.sin(ang)];
+    const edgeA=nearestOnPoly(cityPoly,[pts[0][0]+dir[0]*MAPW,pts[0][1]+dir[1]*MAPW]);
+    const edgeB=nearestOnPoly(cityPoly,[pts[0][0]-dir[0]*MAPW,pts[0][1]-dir[1]*MAPW]);
+    const segments=[
+      ...curvedTrack(edgeA,pts[0],trackBow(dist(edgeA,pts[0]))),
+      ...curvedTrack(pts[0],edgeB,trackBow(dist(pts[0],edgeB))),
+      [edgeA,[edgeA[0]+dir[0]*44,edgeA[1]+dir[1]*44]],
+      [edgeB,[edgeB[0]-dir[0]*44,edgeB[1]-dir[1]*44]],
+    ];
+    return{segments};
+  }
+  const inT=[0], rest=pts.map((_,i)=>i).slice(1), edges=[];
+  while(rest.length){
+    let best=null;
+    for(const a of inT)for(const b of rest){const w=dist(pts[a],pts[b]);if(!best||w<best.w)best={a,b,w}}
+    edges.push([best.a,best.b]); inT.push(best.b); rest.splice(rest.indexOf(best.b),1);
+  }
+  const segments=[];
+  for(const[a,b]of edges)segments.push(...curvedTrack(pts[a],pts[b],trackBow(dist(pts[a],pts[b]))));
+  const degree=new Map();
+  for(const[a,b]of edges){degree.set(a,(degree.get(a)||0)+1);degree.set(b,(degree.get(b)||0)+1)}
+  for(const i of pts.map((_,k)=>k)){
+    if((degree.get(i)||0)>1)continue;
+    const e=edges.find(([a,b])=>a===i||b===i);
+    const other=pts[e[0]===i?e[1]:e[0]];
+    segments.push(...extendOut(i,other));
+  }
+  return{segments};
+}
+
+/* ---------------- ancore: piazza / giardino / cimitero -----------------
+   genero un N-gono orientato sull'asse locale del poligono, con un raggio
+   che varia in modo organico attorno alla posizione dell'ancora. Ogni lato
+   e' un vero taglio a semipiano (clipHalf) — quindi diventa una vera
+   strada, e il pezzo che resta fuori da quel lato E' il lotto vicino, con
+   quel lato organico gia' come proprio bordo. */
+function trimSegAroundCircle(p,q,center,r){
+  const dx=q[0]-p[0], dy=q[1]-p[1];
+  const fx=p[0]-center[0], fy=p[1]-center[1];
+  const a=dx*dx+dy*dy||1e-9, b=2*(fx*dx+fy*dy), c=fx*fx+fy*fy-r*r;
+  const disc=b*b-4*a*c;
+  if(disc<=0)return[[p,q]];
+  const sq=Math.sqrt(disc);
+  let t0=Math.max(0,(-b-sq)/(2*a)), t1=Math.min(1,(-b+sq)/(2*a));
+  if(t0>=t1)return[[p,q]];
+  const segs=[];
+  if(t0>.02)segs.push([p,[p[0]+dx*t0,p[1]+dy*t0]]);
+  if(t1<.98)segs.push([[p[0]+dx*t1,p[1]+dy*t1],q]);
+  return segs;
+}
+function trimSegAroundAnchors(seg,anchors,skip){
+  let segs=[seg];
+  for(const other of anchors){
+    if(other===skip)continue;
+    const r=Math.max(other.halfAlong,other.halfAcross)*1.15;
+    segs=segs.flatMap(s=>trimSegAroundCircle(s[0],s[1],other.pos,r));
+  }
+  return segs;
+}
+function tryReserveShape(poly,anc,anchors){
+  const steps=anc.steps||14;
+  for(let attempt=0;attempt<4;attempt++){
+    const angle=axisAngle(poly), dirVec=[Math.cos(angle),Math.sin(angle)], nVec=[-dirVec[1],dirVec[0]];
+    const verts=[];
+    for(let i=0;i<steps;i++){
+      const t=i/steps*Math.PI*2;
+      const wob=1+anc.wobble*Math.sin(t*3+anc.phase)+anc.wobble*.5*Math.sin(t*5+anc.phase*1.7);
+      verts.push(addv(anc.pos,dirVec,Math.cos(t)*anc.halfAlong*wob,nVec,Math.sin(t)*anc.halfAcross*wob));
+    }
+    let layer=poly, ok=true;
+    const remainder=[], streetChords=[];
+    for(let i=0;i<steps;i++){
+      const a=verts[i], b=verts[(i+1)%steps];
+      const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
+      let nv=[dy/L,-dx/L], offset=a[0]*nv[0]+a[1]*nv[1];
+      if(anc.pos[0]*nv[0]+anc.pos[1]*nv[1]-offset>0){nv=[-nv[0],-nv[1]];offset=-offset}
+      const outside=clipHalf(layer,nv,offset,true);
+      if(outside.length>=3&&polyArea(outside)>MIN_LEAF)remainder.push(outside);
+      // la corda va tagliata contro LAYER (il pezzo non ancora ristretto da
+      // questo taglio), non contro il poly originale: se il poly di partenza
+      // non e' convesso la stessa retta puo' attraversarlo di nuovo in un
+      // punto lontano e scollegato — una corda "fantasma" che diventa una
+      // strada isolata perche' nessun lotto li' vicino la riconosce mai.
+      for(const ch of sliceLine(layer,nv,offset))
+        streetChords.push(...trimSegAroundAnchors(ch,anchors,anc));
+      layer=clipHalf(layer,nv,offset,false);
+      if(layer.length<3){ok=false;break}
+    }
+    const targetArea=anc.halfAlong*anc.halfAcross*Math.PI;
+    const areaOk=ok&&polyArea(layer)>=targetArea*.45;
+    const convexity=areaOk?polyArea(layer)/(polyArea(convexHull(layer))||1):0;
+    if(areaOk&&convexity>=.82)return{reserved:layer,remainder,streetChords};
+    const c=centroid(poly), f=.25+attempt*.2;
+    const moved=[anc.pos[0]+(c[0]-anc.pos[0])*f, anc.pos[1]+(c[1]-anc.pos[1])*f];
+    anc.moved+=dist(anc.pos,moved); anc.pos=moved;
+  }
+  return null;
+}
+
+/* ---------------- la ricorsione unica: isolato E edificio ---------------- */
+function subdivide(polyIn,depth,ctx,out){
+  if(depth>MAX_DEPTH||polyIn.length<3)return;
+  if(polyArea(polyIn)<MIN_LEAF)return;
+
+  // B) ancore: aspetto che il poligono sia gia' abbastanza vicino alla
+  // scala dell'ancora prima di tentare il ritaglio.
+  if(depth<8){
+    const A0=polyArea(polyIn);
+    for(const anc of ctx.anchors){
+      const target=anc.halfAlong*anc.halfAcross*Math.PI;
+      if(anc.done||A0<target*1.3||A0>target*6||!inPoly(anc.pos,polyIn))continue;
+      const box=tryReserveShape(polyIn,anc,ctx.anchors);
+      if(box){
+        anc.done=true;
+        out.reserved.push({type:anc.type,poly:box.reserved,name:anc.name});
+        for(const seg of box.streetChords)out.streets.push({pts:seg,depth});
+        for(const rem of box.remainder)subdivide(rem,depth+1,ctx,out);
+        return;
+      }
+    }
+  }
+
+  // C) fiume: ritaglio (o spacco in due rive) prima del taglio normale
+  const trimmed=trimRiver(polyIn,ctx.river);
+  if(trimmed.poly===null)return;
+  // il lungofiume si registra solo quando il poligono e' ormai vicino alla
+  // scala di un isolato: trimRiver viene chiamato a OGNI livello della
+  // ricorsione che sfiora il fiume, da poligoni enormi a lotti minuscoli —
+  // registrare una curva ogni volta (raggio 140) crea decine di lungofiume
+  // quasi identiche e sovrapposte, che a video si fondono in un nastro
+  // grigio largo invece di restare una sottile linea tratteggiata. Stesso
+  // principio gia' applicato al fronte stradale della ferrovia.
+  const nearLocalScale=polyArea(polyIn)<BLOCK_TARGET*2.5;
+  if(trimmed.split){
+    if(nearLocalScale)out.quays.push(...trimmed.quays);
+    subdivide(trimmed.leftBank,depth+1,ctx,out);
+    subdivide(trimmed.rightBank,depth+1,ctx,out);
+    return;
+  }
+  let poly=trimmed.poly;
+  if(nearLocalScale)out.quays.push(...trimmed.quays);
+  if(poly.length<3||polyArea(poly)<MIN_LEAF)return;
+
+  // C.6) ferrovia: fascia senza edifici, stesso meccanismo del fiume
+  if(ctx.railBands.length&&polyArea(poly)<BLOCK_TARGET*20)for(const band of ctx.railBands){
+    const t=trimRailSeg(poly,band,35);
+    if(t.poly===null)return;
+    // il fronte stradale lungo il binario si registra solo quando il
+    // poligono e' ormai vicino alla scala di un isolato: prima, ogni
+    // livello della ricorsione che sfiorava la fascia (anche poligoni
+    // ancora enormi) ne registrava una copia leggermente diversa, e lungo
+    // tutto il corridoio si accumulavano decine di segmenti quasi
+    // paralleli — il disordine di rette che partono a caso vicino ai
+    // binari. Il taglio della fascia (poly=t.poly, sotto) resta invece
+    // attivo a ogni scala: serve comunque per non lasciare mai un edificio
+    // sopra i binari.
+    if(t.sides&&polyArea(poly)<BLOCK_TARGET*2.5)for(const s of t.sides)out.streets.push({pts:s,depth,rank:'sidetrack'});
+    if(t.split){
+      subdivide(t.leftBank,depth+1,ctx,out);
+      subdivide(t.rightBank,depth+1,ctx,out);
+      return;
+    }
+    poly=t.poly;
+    if(poly.length<3||polyArea(poly)<MIN_LEAF)return;
+  }
+
+  // D) taglio normale: isolato se l'area e' ancora "da citta'", altrimenti lotto
+  const A=polyArea(poly);
+  if(A<BUILDING_TARGET*rr(.6,1.7)){out.buildings.push({poly,c:centroid(poly),A});return}
+  const ref=ctx.gridAngleAt(centroid(poly));
+  const rel=axisAngle(poly)-ref;
+  const angle=ref+Math.round(rel/(Math.PI/2))*(Math.PI/2)+rr(-.02,.02);
+  const nVec=[Math.cos(angle),Math.sin(angle)];
+  let lo=Infinity,hi=-Infinity;
+  for(const v of poly){const s=v[0]*nVec[0]+v[1]*nVec[1];if(s<lo)lo=s;if(s>hi)hi=s}
+  let a=lo,b=hi,mid=(lo+hi)/2;
+  for(let k=0;k<16;k++){
+    mid=(a+b)/2;
+    const h=clipHalf(poly,nVec,mid,true);
+    if((h.length>=3?polyArea(h):0)>A/2)a=mid;else b=mid;
+  }
+  mid+=(hi-lo)*rr(-.04,.04);
+  const chords=sliceLine(poly,nVec,mid);
+  if(!chords.length){out.buildings.push({poly,c:centroid(poly),A});return}
+  const p1=clipHalf(poly,nVec,mid,true), p2=clipHalf(poly,nVec,mid,false);
+  if(p1.length<3||p2.length<3||polyArea(p1)<A*.12||polyArea(p2)<A*.12){
+    out.buildings.push({poly,c:centroid(poly),A});return;
+  }
+  out.streets.push({pts:longestChord(chords),depth,phase:A>BLOCK_TARGET?'block':'lot'});
+  subdivide(p1,depth+1,ctx,out); subdivide(p2,depth+1,ctx,out);
+}
+
+/* ---------------- ponti automatici -----------------
+   nessuna pedina li piazza: il fiume spacca sempre la citta' in due meta'
+   generate ciascuna per conto proprio, e qui le ricollego dopo — agganciando
+   ogni ponte a strade gia' reali su entrambe le rive, invece di forzare un
+   taglio anticipato su un poligono ancora enorme. Il numero di ponti si
+   adatta a quanto fiume attraversa la citta' (uno ogni ~220 unita', da 2 a
+   6): una citta' storica vera ne ha uno ogni 2-3 isolati, non uno ogni
+   quartiere. */
+function autoBridges(river,cityPoly,streets){
+  if(!river)return[];
+  const dense=densify(river.pts,20).filter(p=>inPoly(p,cityPoly));
+  if(dense.length<2)return[];
+  const span=[];
+  for(let i=0;i<dense.length-1;i++)span.push(dist(dense[i],dense[i+1]));
+  const total=span.reduce((a,b)=>a+b,0);
+  const count=Math.max(2,Math.min(6,Math.round(total/220)));
+
+  // agganciare il ponte al punto piu' vicino in assoluto e' un errore: quel
+  // punto e' spesso un mozzicone isolato di 1-2 segmenti vicino alla riva,
+  // non la rete stradale principale. Raggruppo le strade in componenti
+  // connesse e per ciascuna riva individuo la componente piu' grande.
+  const cand=streets.filter(c=>c.phase!=='lot');
+  const n=cand.length;
+  const parent=Array.from({length:n},(_,i)=>i);
+  const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
+  const union=(i,j)=>{const a=find(i),b=find(j);if(a!==b)parent[a]=b;};
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    const A=cand[i].pts,B=cand[j].pts;
+    if(segPointDist(A[0],B[0],B[1])<2.4||segPointDist(A[1],B[0],B[1])<2.4||
+       segPointDist(B[0],A[0],A[1])<2.4||segPointDist(B[1],A[0],A[1])<2.4)union(i,j);
+  }
+  const sizeBySide={'-1':new Map(),'1':new Map()};
+  for(let i=0;i<n;i++){
+    const mid=[(cand[i].pts[0][0]+cand[i].pts[1][0])/2,(cand[i].pts[0][1]+cand[i].pts[1][1])/2];
+    const side=Math.sign(riverAt(river,mid).side)||1;
+    const m=sizeBySide[side];
+    const root=find(i);
+    m.set(root,(m.get(root)||0)+1);
+  }
+  const mainRoot={};
+  for(const side of[-1,1]){
+    let best=null,bestSize=-1;
+    for(const[root,sz]of sizeBySide[side])if(sz>bestSize){bestSize=sz;best=root;}
+    mainRoot[side]=best;
+  }
+  const nearestOnSide=(p,side)=>{
+    let best=null;
+    for(let i=0;i<n;i++){
+      if(find(i)!==mainRoot[side])continue;
+      const c=cand[i];
+      for(const q of[c.pts[0],c.pts[1]]){
+        if(Math.sign(riverAt(river,q).side)!==side)continue;
+        const d=dist(p,q);
+        if(!best||d<best.d)best={d,q};
+      }
+    }
+    return best;
+  };
+  const bridges=[];
+  for(let k=0;k<count;k++){
+    const target=(k+.5)/count*total;
+    let acc=0,idx=0;
+    while(idx<span.length&&acc+span[idx]<target){acc+=span[idx];idx++}
+    const p=dense[Math.min(idx,dense.length-1)];
+    const info=riverAt(river,p);
+    const bankA=[p[0]-info.nv[0]*info.hw,p[1]-info.nv[1]*info.hw];
+    const bankB=[p[0]+info.nv[0]*info.hw,p[1]+info.nv[1]*info.hw];
+    const nA=nearestOnSide(bankA,-1), nB=nearestOnSide(bankB,1);
+    if(!nA||!nB||nA.d>CELL*4||nB.d>CELL*4)continue;
+    bridges.push({deckA:bankA,deckB:bankB,approachA:nA.q,approachB:nB.q});
+  }
+  return bridges;
+}
+
+// il filtro per scala (in subdivide, sopra) non basta da solo: la STESSA
+// riva puo' restare sotto la soglia per diverse generazioni consecutive
+// mentre il lotto continua a rimpicciolirsi, e ognuna di quelle generazioni
+// registra la propria lungofiume — decine di curve quasi identiche,
+// leggermente sfalsate, che sovrapposte si leggono come un nastro grigio
+// largo invece di una sottile linea tratteggiata. Qui si tiene solo una
+// lungofiume ogni tanto per riva, scartando quelle troppo vicine a una
+// gia' accettata.
+function dedupeQuays(quays,river){
+  if(!river||!quays.length)return quays;
+  const meta=quays.map(q=>{
+    const mid=q[Math.floor(q.length/2)];
+    return{q,mid,side:Math.sign(riverAt(river,mid).side)||1};
+  });
+  const kept=[];
+  for(const m of meta){
+    if(kept.some(k=>k.side===m.side&&dist(k.mid,m.mid)<170))continue;
+    kept.push(m);
+  }
+  return kept.map(k=>k.q);
+}
+// stesso problema, stesso rimedio: il fronte stradale lungo il binario
+// (rank 'sidetrack') puo' restare registrato piu' volte per lo stesso
+// tratto mentre il lotto scende di generazione in generazione sotto la
+// soglia di scala locale.
+function dedupeSidetracks(streets){
+  const others=streets.filter(c=>c.rank!=='sidetrack');
+  const tracks=streets.filter(c=>c.rank==='sidetrack');
+  const mid=c=>[(c.pts[0][0]+c.pts[1][0])/2,(c.pts[0][1]+c.pts[1][1])/2];
+  const kept=[];
+  for(const t of tracks){
+    const m=mid(t);
+    if(kept.some(k=>dist(mid(k),m)<20))continue;
+    kept.push(t);
+  }
+  return others.concat(kept);
+}
+
+/* ---------------- rete di sicurezza: frammenti isolati -----------------
+   dopo fiume, binario e ancore restano quasi sempre uno sparuto pugno di
+   frammenti isolati vicino a un bordo forzato. Rincorrere la causa
+   geometrica esatta e' fragile — stesso rimedio dei ponti: non toccare la
+   ricorsione, ricucire DOPO con un vero segmento verso il punto piu' vicino
+   della rete principale, un frammento alla volta. */
+function reconnectOrphans(streets){
+  const cand=streets.filter(c=>c.phase!=='lot');
+  const n=cand.length;
+  const parent=Array.from({length:n},(_,i)=>i);
+  const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
+  const union=(i,j)=>{const a=find(i),b=find(j);if(a!==b)parent[a]=b;};
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    const A=cand[i].pts,B=cand[j].pts;
+    if(segPointDist(A[0],B[0],B[1])<2.4||segPointDist(A[1],B[0],B[1])<2.4||
+       segPointDist(B[0],A[0],A[1])<2.4||segPointDist(B[1],A[0],A[1])<2.4)union(i,j);
+  }
+  const extra=[];
+  for(let iter=0;iter<60;iter++){
+    const groups=new Map();
+    for(let i=0;i<n;i++){const r=find(i);if(!groups.has(r))groups.set(r,[]);groups.get(r).push(i);}
+    if(groups.size<=1)break;
+    let mainRoot=-1,mainSize=-1;
+    for(const[r,idxs]of groups)if(idxs.length>mainSize){mainSize=idxs.length;mainRoot=r;}
+    const mainIdxs=groups.get(mainRoot);
+    let best=null;
+    for(const[r,idxs]of groups){
+      if(r===mainRoot)continue;
+      for(const i of idxs)for(const j of mainIdxs)
+        for(const p of cand[i].pts)for(const q of cand[j].pts){
+          const d=dist(p,q);
+          if(!best||d<best.d)best={d,p,q,r};
+        }
+    }
+    if(!best||best.d>CELL*1.6)break;
+    extra.push({pts:[best.p,best.q],depth:8});
+    for(const i of groups.get(best.r))union(i,mainRoot);
+  }
+  return extra;
+}
+
+// un corso e' fatto di tanti isolati con lo stesso fronte, non un singolo
+// segmento lungo: unisco i segmenti che condividono un estremo e vanno
+// nella stessa direzione, e giudico la catena intera.
+function classifyMajorRoutes(streets,threshold){
+  const idx=[]; streets.forEach((c,i)=>{if(c.phase!=='lot')idx.push(i)});
+  const parent=new Map(idx.map(i=>[i,i]));
+  const find=i=>{while(parent.get(i)!==i){parent.set(i,parent.get(parent.get(i)));i=parent.get(i)}return i};
+  const union=(i,j)=>{const a=find(i),b=find(j);if(a!==b)parent.set(a,b)};
+  const angleOf=c=>{const d=Math.atan2(c.pts[1][1]-c.pts[0][1],c.pts[1][0]-c.pts[0][0]);return((d%Math.PI)+Math.PI)%Math.PI};
+  for(let ii=0;ii<idx.length;ii++)for(let jj=ii+1;jj<idx.length;jj++){
+    const i=idx[ii], j=idx[jj], A=streets[i].pts, B=streets[j].pts;
+    let shared=false;
+    for(const pa of[A[0],A[1]])for(const pb of[B[0],B[1]])if(dist(pa,pb)<2.4)shared=true;
+    if(!shared)continue;
+    let diff=Math.abs(angleOf(streets[i])-angleOf(streets[j])); if(diff>Math.PI/2)diff=Math.PI-diff;
+    if(diff<.18)union(i,j);
+  }
+  const totals=new Map();
+  for(const i of idx){const r=find(i), len=dist(streets[i].pts[0],streets[i].pts[1]); totals.set(r,(totals.get(r)||0)+len)}
+  for(const i of idx)if(totals.get(find(i))>=threshold)streets[i].majorRoute=true;
+}
+
+function onBoundary(p,cityPoly,eps=4){
+  for(let i=0;i<cityPoly.length;i++)
+    if(segPointDist(p,cityPoly[i],cityPoly[(i+1)%cityPoly.length])<eps)return true;
+  return false;
+}
+function nearRiverbank(p,river){
+  if(!river)return false;
+  const info=riverAt(river,p);
+  return info.d<info.hw+16;
+}
+function computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river){
+  const streets=out.streets.filter(c=>c.phase!=='lot'), n=streets.length;
+  const parent=Array.from({length:n},(_,i)=>i);
+  const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i]}return i};
+  const union=(i,j)=>{const a=find(i),b=find(j);if(a!==b)parent[a]=b};
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+    const A=streets[i].pts,B=streets[j].pts;
+    if(segPointDist(A[0],B[0],B[1])<2.4||segPointDist(A[1],B[0],B[1])<2.4||
+       segPointDist(B[0],A[0],A[1])<2.4||segPointDist(B[1],A[0],A[1])<2.4)union(i,j);
+  }
+  const compsSet=new Set();for(let i=0;i<n;i++)compsSet.add(find(i));
+  let deadEnds=0;
+  streets.forEach((c,i)=>{
+    for(const p of[c.pts[0],c.pts[1]]){
+      let linked=false;
+      for(let j=0;j<n;j++){if(j===i)continue;if(segPointDist(p,streets[j].pts[0],streets[j].pts[1])<2.4){linked=true;break}}
+      for(const q of out.quays){if(linked)break;for(let k=0;k<q.length-1;k++)if(segPointDist(p,q[k],q[k+1])<3){linked=true;break}}
+      if(!linked&&!onBoundary(p,cityPoly)&&!nearRiverbank(p,river))deadEnds++;
+    }
+  });
+  return{
+    streets:n, components:compsSet.size, deadEnds,
+    buildings:out.buildings.length, reserved:out.reserved.length,
+    anchorsMoved:anchors.filter(a=>a.moved>.5).length,
+    anchorsFallback:anchors.filter(a=>a.fallback).length,
+    anchorsUnresolved:anchors.filter(a=>!a.done).length,
+    landmarksBound:landmarkPawns.filter(p=>p.bound).length,
+    landmarksTotal:landmarkPawns.length,
+  };
+}
+
+/* ---------------- orchestrazione del tessuto -----------------
+   Riceve gli ingredienti gia' pronti da world.js (cityPoly, il fiume
+   principale nel formato {pts,hw}, i luoghi) e produce l'intero tessuto
+   urbano in un colpo solo. */
+// PCA locale sul contorno città: stessa idea di axisAngle, ma usa solo i
+// punti del bordo entro un raggio dal punto interrogato invece che tutto il
+// poligono. Un'unica direzione per l'intera sagoma andava bene sul
+// placeholder quasi rettangolare del prototipo, ma la sagoma vera (campo
+// di urbanità + marching squares) è amorfa: un angolo fisso ci si allinea
+// bene in certe zone e ci va storto in altre, producendo intere diagonali
+// di lotti a trapezio (persi come "cortile" invece che come edificio).
+// Con pochi punti vicini (centro città lontano da ogni bordo) non c'è una
+// stima locale affidabile: si ricade sull'angolo globale.
+function localAxisAngle(boundarySamples,p,radius){
+  const pts=boundarySamples.filter(q=>dist(q,p)<radius);
+  if(pts.length<6)return null;
+  const c=centroid(pts);
+  let sxx=0,sxy=0,syy=0;
+  for(const q of pts){const dx=q[0]-c[0],dy=q[1]-c[1];sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy}
+  return .5*Math.atan2(2*sxy,sxx-syy);
+}
+function buildTessuto(cityPoly, river, places, railStations){
+  const anchors=places.filter(p=>ANCHOR_CATS.has(p.cat)).map(p=>({
+    type:p.cat,pos:[p.x,p.y],name:p.name,done:false,moved:0,fallback:false,
+    halfAlong:p.cat==='piazza'?rr(33,46):rr(37,53),
+    halfAcross:p.cat==='piazza'?rr(26,37):rr(31,44),
+    wobble:p.cat==='giardino'?rr(.22,.30):p.cat==='cimitero'?rr(.14,.20):rr(.12,.18),
+    phase:rr(0,Math.PI*2), steps:10,
+  }));
+  const landmarkPawns=places.filter(p=>!ANCHOR_CATS.has(p.cat));
+  const rail=railStations.length?buildRail(railStations,cityPoly):null;
+  const railBands=rail?rail.segments.map(([a,b])=>railBand(a,b,RAIL_HW)):[];
+  const cityGridAngle=axisAngle(cityPoly);
+  const gridAngleAt=river?(p=>{
+    const info=riverAt(river,p);
+    if(info.d<CELL*2.6)return Math.atan2(info.tan[1],info.tan[0]);
+    return cityGridAngle;
+  }):(()=>cityGridAngle);
+  const ctx={river,anchors,railBands,gridAngleAt};
+  const out={streets:[],quays:[],buildings:[],reserved:[]};
+  subdivide(cityPoly,0,ctx,out);
+  out.quays=dedupeQuays(out.quays,river);
+  out.streets=dedupeSidetracks(out.streets);
+
+  const bridges=river?autoBridges(river,cityPoly,out.streets):[];
+  for(const b of bridges){
+    out.streets.push({pts:[b.approachA,b.deckA],depth:0,rank:'bridgehead'});
+    out.streets.push({pts:[b.deckA,b.deckB],depth:0,rank:'bridgehead'});
+    out.streets.push({pts:[b.deckB,b.approachB],depth:0,rank:'bridgehead'});
+  }
+  out.streets.push(...reconnectOrphans(out.streets));
+  classifyMajorRoutes(out.streets,260);
+
+  // rete di sicurezza: un'ancora senza spazio reclama l'edificio piu' vicino
+  for(const anc of anchors){
+    if(anc.done)continue;
+    let best=-1,bd=Infinity;
+    out.buildings.forEach((b,i)=>{if(b._claimed)return;const d=dist(anc.pos,b.c);if(d<bd){bd=d;best=i}});
+    if(best>=0&&bd<CELL*1.8){
+      out.buildings[best]._claimed=true;
+      const wob=anc.type==='giardino'?.20:anc.type==='cimitero'?.14:.12;
+      out.reserved.push({type:anc.type,poly:out.buildings[best].poly,name:anc.name,
+        shapePoly:organicBlob(out.buildings[best].poly,wob,rr(0,Math.PI*2),.72)});
+      out.buildings.splice(best,1);
+      anc.done=true;anc.fallback=true;
+    }
+  }
+
+  // i luoghi occupano l'edificio generato piu' vicino: un riferimento a un
+  // oggetto che esiste davvero nel tessuto, non un'icona indipendente.
+  const claimed=new Set();
+  for(const lp of landmarkPawns){
+    let best=-1,bd=Infinity;
+    out.buildings.forEach((b,i)=>{if(claimed.has(i)||b.landmark||b.A<MIN_BUILDING_DRAW)return;const d=dist([lp.x,lp.y],b.c);if(d<bd){bd=d;best=i}});
+    if(best>=0&&bd<CELL*1.4){
+      claimed.add(best);
+      const b=out.buildings[best];
+      b.landmark={cat:lp.cat,name:lp.name};
+      b.footprintParts=landmarkFootprint(b.poly,lp.cat);
+      lp.bound=true;
+    }
+  }
+
+  // verde autonomo: qualche edificio comune diventa spazio verde, come i
+  // ritagli inutilizzati che ogni citta' vera accumula nel tempo.
+  {
+    const candidates=[];
+    out.buildings.forEach((b,i)=>{if(!b.landmark&&b.A>510&&b.A<4100)candidates.push(i)});
+    let budget=Math.min(6,Math.floor(out.buildings.length/8));
+    const claimedGreen=new Set();
+    while(budget>0&&candidates.length){
+      const idx=(RND()*candidates.length)|0, i=candidates.splice(idx,1)[0];
+      const b=out.buildings[i];
+      claimedGreen.add(i);
+      out.reserved.push({type:'verde',poly:b.poly,name:null,
+        shapePoly:organicBlob(b.poly,.22,rr(0,Math.PI*2),.68)});
+      budget--;
+    }
+    out.buildings=out.buildings.filter((b,i)=>!claimedGreen.has(i));
+  }
+
+  // cortile in verde: un lotto troppo storto per un vero rettangolo
+  // (rectFootprint sotto soglia, RECT_ACCEPT) restava sempre terreno
+  // libero disegnato col colore nudo della citta' — su un gruppo di lotti
+  // vicini, tutti storti per la stessa ragione (un'ansa del fiume, un
+  // margine cittadino), si leggeva come una vasta area grigia. Un lotto
+  // irregolare e' pero' proprio il candidato migliore per un giardino: la
+  // forma organica (ora ritagliata contro i suoi lati veri) non ha bisogno
+  // di un angolo retto per starci bene. Solo una PARTE viene convertita,
+  // non tutti — altrimenti si perderebbe la varieta' di una citta' vera,
+  // dove un cortile davvero resta anche solo terreno libero.
+  {
+    const claimedGarden=new Set();
+    out.buildings.forEach((b,i)=>{
+      if(b.landmark||b.A<MIN_BUILDING_DRAW)return;
+      const rect=rectFootprint(b.poly,.84);
+      if(polyArea(rect)>=b.A*RECT_ACCEPT)return;
+      if(RND()>=.4)return;
+      claimedGarden.add(i);
+      out.reserved.push({type:'verde',poly:b.poly,name:null,
+        shapePoly:organicBlob(b.poly,.20,rr(0,Math.PI*2),.7)});
+    });
+    out.buildings=out.buildings.filter((b,i)=>!claimedGarden.has(i));
+  }
+
+  const diag=computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river);
+  diag.rail=!!rail;
+  return {out,bridges,rail,anchors,landmarkPawns,diag};
+}

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASMA - laboratorio icone</title>
+<style>
+  :root{--bg:#15110d;--panel:#241d16;--ink:#eee2cd;--muted:#aa9a7f;--line:#4b3d30;--accent:#d49350;--red:#d93b34}
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+  body{display:grid;grid-template-columns:360px 1fr;gap:14px;padding:14px}
+  aside{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;max-height:calc(100vh - 28px);overflow:auto}
+  h1{font-size:17px;margin:0 0 5px}
+  p{font-size:12px;line-height:1.4;color:var(--muted);margin:0 0 12px}
+  label{display:block;font-size:11px;color:var(--muted);margin:9px 0 4px}
+  select,input,textarea,button{width:100%;border:1px solid var(--line);border-radius:7px;background:#1b1510;color:var(--ink);font:inherit}
+  select,input,button{min-height:36px;padding:6px 8px}
+  textarea{min-height:130px;padding:8px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;resize:vertical}
+  .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+  button{background:#33291f;cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#21170d;font-weight:700}
+  main{display:grid;grid-template-rows:auto 1fr;gap:12px}
+  .strip{display:flex;flex-wrap:wrap;gap:10px}
+  .card{width:104px;background:#221a13;border:1px solid var(--line);border-radius:8px;padding:8px;display:grid;gap:6px;justify-items:center;cursor:pointer}
+  .card.active{outline:3px solid var(--accent)}
+  .card span{font-size:11px;color:var(--muted);max-width:88px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .token{width:76px;aspect-ratio:1;border-radius:50%;background:var(--red);border:4px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.45),0 5px 12px rgba(0,0,0,.25);display:grid;place-items:center}
+  .token svg{width:72%;height:72%;overflow:visible}
+  .board{align-self:start;max-width:860px;display:grid;grid-template-columns:repeat(6,1fr);background:#2c2015;border:14px solid #8a633d;outline:10px solid #20170f}
+  .board:after{content:"";display:block}
+  .sq{position:relative;display:grid;place-items:center;border:1px solid #2b1d10;background:#d9d7b6}
+  .sq:nth-child(2n){background:#9b744b}
+  .sq:nth-child(2n):before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(168deg,rgba(80,47,23,.20) 0 3px,rgba(180,136,85,.18) 4px 10px);opacity:.55}
+  .big{width:58%;z-index:1}
+  .grid-bg{position:absolute;inset:16%;border:1px dashed rgba(255,255,255,.6);border-radius:50%;pointer-events:none}
+  @media (max-width:900px){body{display:block}aside{max-height:none;margin-bottom:12px}.board{max-width:100%}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>Laboratorio icone</h1>
+  <p>Modifica icona, scala e offset. I simboli sono SVG 100x100: niente font, quindi niente baseline fuori centro.</p>
+  <label>Icona</label>
+  <select id="pick"></select>
+  <div class="row">
+    <div><label>Scala</label><input id="scale" type="number" min=".35" max="1.4" step=".02"></div>
+    <div><label>X</label><input id="dx" type="number" min="-30" max="30" step="1"></div>
+    <div><label>Y</label><input id="dy" type="number" min="-30" max="30" step="1"></div>
+  </div>
+  <label>SVG interno</label>
+  <textarea id="svg"></textarea>
+  <div class="actions">
+    <button class="primary" id="apply">Applica</button>
+    <button id="reset">Reset icona</button>
+    <button id="copy">Copia JSON</button>
+    <button id="save">Salva locale</button>
+    <button id="resetAll">Reset tutto</button>
+  </div>
+  <p id="status"></p>
+</aside>
+<main>
+  <div class="strip" id="strip"></div>
+  <div class="board" id="board"></div>
+</main>
+<script>
+"use strict";
+const STORE='asma.iconLab.v1';
+const STORE_REV='asma.iconLab.rev';
+const REV='2026-08-23-simple-shapes-1';
+const DEPRECATED=new Set(['fiume','lago','mare','montagna','collina']);
+const FORCE_DEFAULT=new Set(['chiesa','cimitero','monumento','municipio','piazza','torre','mercato','stazione','porto','bottega','ponte','porta','biblioteca','teatro','giardino','fontana','osteria','locale']);
+const ICON_BOOST=1.06;
+const CAT_COLOR={
+  chiesa:'#e33b2f',cimitero:'#e33b2f',monumento:'#e33b2f',
+  municipio:'#b88314',piazza:'#b88314',torre:'#b88314',
+  mercato:'#00a6a6',stazione:'#00a6a6',porto:'#00a6a6',bottega:'#00a6a6',
+  ponte:'#b54bc9',porta:'#b54bc9',
+  biblioteca:'#7c5fe4',teatro:'#7c5fe4',giardino:'#7c5fe4',fontana:'#7c5fe4',
+  osteria:'#41484b',locale:'#41484b'
+};
+const DEFAULTS=[
+  {id:'chiesa',name:'Chiesa',scale:.82,dx:0,dy:1,svg:'<path d="M50 16a34 34 0 1 0 0 68 34 34 0 0 0 0-68zM46 30h8v14h14v8H54v20h-8V52H32v-8h14z"/>'},
+  {id:'cimitero',name:'Cimitero',scale:.84,dx:0,dy:2,svg:'<path d="M42 14h16v20h18v14H58v28h22v10H20V76h22V48H24V34h18z"/>'},
+  {id:'monumento',name:'Monumento',scale:.84,dx:0,dy:1,svg:'<path d="M50 12 84 80H16zM30 84h40v8H30z"/>'},
+  {id:'municipio',name:'Municipio',scale:.86,dx:0,dy:1,svg:'<path d="M16 38 50 18l34 20v8H16zM24 50h10v28H24zM45 50h10v28H45zM66 50h10v28H66zM18 82h64v8H18z"/>'},
+  {id:'piazza',name:'Piazza',scale:.82,dx:0,dy:1,svg:'<path d="M50 10 90 50 50 90 10 50zM50 30 70 50 50 70 30 50z"/>'},
+  {id:'torre',name:'Torre',scale:.84,dx:0,dy:1,svg:'<path d="M28 16h12v10h8V16h8v10h8V16h12v20H66v50H34V36h-6z"/>'},
+  {id:'mercato',name:'Mercato',scale:.86,dx:0,dy:1,svg:'<path d="M16 28h68l-8 20H64l-6-12-8 12H38l-8-12-6 12H12zM24 54h52v28H24z"/>'},
+  {id:'stazione',name:'Stazione',scale:.84,dx:0,dy:0,svg:'<path d="M24 18h52v46H24zM32 26v16h36V26zM34 52a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM66 52a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM30 82l12-12h16l12 12H58l-8-8-8 8z"/>'},
+  {id:'porto',name:'Porto',scale:.86,dx:0,dy:1,svg:'<path d="M45 12h10v18h14v10H55v26c9-2 15-9 17-20l12 4c-5 23-19 36-34 36S21 73 16 50l12-4c2 11 8 18 17 20V40H31V30h14zM38 20a12 12 0 1 1 24 0H50z"/>'},
+  {id:'ponte',name:'Ponte',scale:.88,dx:0,dy:2,svg:'<path d="M14 76h16V58c0-17 10-30 20-30s20 13 20 30v18h16v10H58V58c0-9-4-16-8-16s-8 7-8 16v28H14z"/>'},
+  {id:'porta',name:'Porta',scale:.84,dx:0,dy:1,svg:'<path d="M20 18h60v68H62V48c0-9-5-16-12-16S38 39 38 48v38H20zM44 86V50c0-4 2-7 6-7s6 3 6 7v36z"/>'},
+  {id:'biblioteca',name:'Biblioteca',scale:.86,dx:0,dy:1,svg:'<path d="M16 24c14-4 25-2 34 7 9-9 20-11 34-7v54c-14-4-25-2-34 7-9-9-20-11-34-7zM28 38v28c6 0 12 2 17 6V42c-5-4-11-5-17-4zM55 42v30c5-4 11-6 17-6V38c-6-1-12 0-17 4z"/>'},
+  {id:'teatro',name:'Teatro',scale:.84,dx:0,dy:0,svg:'<path d="M50 14c22 0 34 12 34 30 0 22-14 40-34 40S16 66 16 44c0-18 12-30 34-30zM29 36c8 8 14 8 21 0zM50 36c7 8 13 8 21 0zM34 62c8 9 24 9 32 0z"/>'},
+  {id:'giardino',name:'Giardino',scale:.84,dx:0,dy:1,svg:'<path d="M48 86V60C30 58 20 46 20 30c16-1 27 5 34 18 5-17 16-28 32-29 3 23-9 38-30 42v25z"/>'},
+  {id:'fontana',name:'Fontana',scale:.82,dx:0,dy:2,svg:'<path d="M46 14h8v18h14v10H32V32h14zM22 52h56c-3 20-14 32-28 32S25 72 22 52zM34 60c6 7 26 7 32 0z"/>'},
+  {id:'osteria',name:'Osteria',scale:.84,dx:0,dy:0,svg:'<path d="M24 20h36v40c0 11-8 19-18 19S24 71 24 60zM64 30h8c8 0 12 6 12 14s-4 14-12 14h-8V47h7c3 0 5-1 5-3s-2-3-5-3h-7zM28 84h36v8H28z"/>'},
+  {id:'bottega',name:'Bottega',scale:.84,dx:0,dy:1,svg:'<path d="M28 36h44l8 48H20zM38 36c0-12 5-20 12-20s12 8 12 20H52c0-6-1-10-2-10s-2 4-2 10z"/>'},
+  {id:'locale',name:'Locale',scale:.84,dx:0,dy:0,svg:'<path d="M60 14v48c0 11-9 20-23 20-10 0-17-6-17-13s7-13 17-13c5 0 9 1 13 4V14zM60 14h24v14H60z"/>'},
+  {id:'acqua',name:'Acqua',kind:'water',scale:.88,dx:0,dy:0,svg:'<path d="M14 36c10-10 20 10 30 0s20 10 30 0c5-5 9-5 12-2v13c-10-9-20 10-30 0s-20 10-30 0c-5-5-9-5-12-2zM14 60c10-10 20 10 30 0s20 10 30 0c5-5 9-5 12-2v13c-10-9-20 10-30 0s-20 10-30 0c-5-5-9-5-12-2z"/>'},
+  {id:'rilievo',name:'Rilievo',kind:'landform',scale:.88,dx:0,dy:1,svg:'<path d="M12 78 42 24l16 28 10-16 20 42z M42 44 32 62h21z M68 54l-7 13h16z"/>'}
+];
+const SIMPLE_SHAPES={
+  chiesa:{scale:.78,dx:0,dy:0,svg:'<path d="M50 16a34 34 0 1 0 0 68 34 34 0 0 0 0-68z"/>',detail:'<path d="M47 33h6v14h14v6H53v18h-6V53H33v-6h14z"/>'},
+  cimitero:{scale:.82,dx:0,dy:1,svg:'<path d="M42 14h16v22h20v14H58v34H42V50H22V36h20z"/>',detail:'<path d="M24 84h52v7H24z"/>'},
+  monumento:{scale:.82,dx:0,dy:1,svg:'<path d="M50 12 86 84H14z"/>',detail:'<path d="M34 84h32v7H34z"/>'},
+  municipio:{scale:.82,dx:0,dy:1,svg:'<path d="M18 22h64v60H18z"/>',detail:'<path d="M26 32h48v8H26zM30 48h8v24h-8zM46 48h8v24h-8zM62 48h8v24h-8z"/>'},
+  piazza:{scale:.78,dx:0,dy:0,svg:'<path d="M50 10 90 50 50 90 10 50z"/>',detail:'<path d="M50 32 68 50 50 68 32 50z"/>'},
+  torre:{scale:.82,dx:0,dy:0,svg:'<path d="M34 14h32v72H34z"/>',detail:'<path d="M26 14h12v12H26zM44 14h12v12H44zM62 14h12v12H62z"/>'},
+  mercato:{scale:.82,dx:0,dy:1,svg:'<path d="M14 32h72l-10 22H24zM24 58h52v26H24z"/>',detail:'<path d="M30 66h40v8H30z"/>'},
+  stazione:{scale:.82,dx:0,dy:0,svg:'<path d="M20 20h60v56H20z"/>',detail:'<path d="M30 30h40v18H30zM31 60a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM69 60a7 7 0 1 0 0 14 7 7 0 0 0 0-14z"/>'},
+  porto:{scale:.82,dx:0,dy:0,svg:'<path d="M44 12h12v22h20v12H56v34H44V46H24V34h20z"/>',detail:'<path d="M24 56c4 18 14 28 26 28s22-10 26-28l10 4c-6 24-20 36-36 36S20 84 14 60z"/>'},
+  bottega:{scale:.80,dx:0,dy:0,svg:'<path d="M28 36h44l10 48H18z"/>',detail:'<path d="M38 36c0-12 5-20 12-20s12 8 12 20H52c0-6-1-10-2-10s-2 4-2 10z"/>'},
+  ponte:{scale:.82,dx:0,dy:3,svg:'<path d="M14 76h18V58c0-18 9-30 18-30s18 12 18 30v18h18v12H58V58c0-8-3-14-8-14s-8 6-8 14v30H14z"/>',detail:'<path d="M22 66h56v6H22z"/>'},
+  porta:{scale:.82,dx:0,dy:0,svg:'<path d="M22 16h56v72H58V50c0-8-3-14-8-14s-8 6-8 14v38H22z"/>',detail:'<path d="M44 88V52c0-4 2-7 6-7s6 3 6 7v36z"/>'},
+  biblioteca:{scale:.82,dx:0,dy:0,svg:'<path d="M14 24c15-5 27-2 36 7 9-9 21-12 36-7v56c-15-5-27-2-36 7-9-9-21-12-36-7z"/>',detail:'<path d="M28 40v26c6 0 12 2 17 6V44c-5-4-11-5-17-4zM55 44v28c5-4 11-6 17-6V40c-6-1-12 0-17 4z"/>'},
+  teatro:{scale:.80,dx:0,dy:0,svg:'<path d="M50 16c22 0 36 13 36 32 0 22-15 38-36 38S14 70 14 48c0-19 14-32 36-32z"/>',detail:'<path d="M28 38c8 8 15 8 22 0zM50 38c7 8 14 8 22 0zM34 62c8 8 24 8 32 0z"/>'},
+  giardino:{scale:.82,dx:0,dy:0,svg:'<path d="M50 84C26 66 18 42 28 22c24 1 43 19 48 44-9 10-18 16-26 18z"/>',detail:'<path d="M34 34c14 10 24 22 31 38l-7 4c-7-17-16-28-29-37z"/>'},
+  fontana:{scale:.80,dx:0,dy:2,svg:'<path d="M22 50h56c-2 22-14 34-28 34S24 72 22 50z"/>',detail:'<path d="M46 14h8v20h16v10H30V34h16zM34 60c6 7 26 7 32 0z"/>'},
+  osteria:{scale:.82,dx:0,dy:0,svg:'<path d="M22 18h40v44c0 12-9 20-20 20S22 74 22 62z"/>',detail:'<path d="M66 30h8c8 0 12 6 12 14s-4 14-12 14h-8V47h7c3 0 5-1 5-3s-2-3-5-3h-7zM28 86h36v7H28z"/>'},
+  locale:{scale:.82,dx:0,dy:0,svg:'<path d="M58 14v50c0 12-9 20-23 20-10 0-18-6-18-14s8-14 18-14c5 0 9 1 13 4V14z"/>',detail:'<path d="M58 14h26v14H58z"/>'}
+};
+function applySimpleShapes(list){list.forEach(icon=>{if(SIMPLE_SHAPES[icon.id])Object.assign(icon,SIMPLE_SHAPES[icon.id])})}
+applySimpleShapes(DEFAULTS);
+let icons=load(), active=icons[0].id;
+const $=id=>document.getElementById(id);
+function load(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(STORE));
+    if(!saved)return structuredClone(DEFAULTS);
+    const rev=localStorage.getItem(STORE_REV);
+    const byId=new Map(saved.filter(i=>!DEPRECATED.has(i.id)).map(i=>[i.id,i]));
+    const merged=DEFAULTS.map(i=>(rev!==REV&&FORCE_DEFAULT.has(i.id))?structuredClone(i):(byId.get(i.id)||structuredClone(i)));
+    if(rev!==REV)localStorage.setItem(STORE_REV,REV);
+    return merged;
+  }catch(e){return structuredClone(DEFAULTS)}
+}
+function token(icon,cls='token'){
+  const color=icon.kind==='water'?'#0878c9':icon.kind==='landform'?'#5c8e24':(CAT_COLOR[icon.id]||'var(--red)');
+  const k=icon.scale*ICON_BOOST;
+  const tr=`translate(${icon.dx} ${icon.dy}) scale(${k}) translate(${50/k-50} ${50/k-50})`;
+  return `<div class="${cls}" style="background:${color}"><svg viewBox="0 0 100 100" aria-hidden="true"><g fill="#fff" transform="${tr}">${icon.svg}</g>${icon.detail?`<g fill="rgba(0,0,0,.24)" transform="${tr} scale(.72) translate(19 19)">${icon.detail}</g>`:''}</svg></div>`;
+}
+function render(){
+  const icon=icons.find(i=>i.id===active);
+  $('pick').innerHTML=icons.map(i=>`<option value="${i.id}" ${i.id===active?'selected':''}>${i.name}</option>`).join('');
+  $('scale').value=icon.scale;$('dx').value=icon.dx;$('dy').value=icon.dy;$('svg').value=icon.svg;
+  $('strip').innerHTML=icons.map(i=>`<div class="card ${i.id===active?'active':''}" data-id="${i.id}">${token(i)}<span>${i.name}</span></div>`).join('');
+  $('board').innerHTML=icons.map(i=>`<div class="sq"><div class="grid-bg"></div>${token(i,'token big')}</div>`).join('');
+  document.querySelectorAll('.card').forEach(c=>c.onclick=()=>{active=c.dataset.id;render()});
+}
+function apply(){
+  const icon=icons.find(i=>i.id===active);
+  icon.scale=+$('scale').value||1;icon.dx=+$('dx').value||0;icon.dy=+$('dy').value||0;icon.svg=$('svg').value.trim();
+  render();
+}
+$('pick').onchange=e=>{active=e.target.value;render()};
+$('apply').onclick=apply;
+$('reset').onclick=()=>{const i=icons.findIndex(x=>x.id===active);icons[i]=structuredClone(DEFAULTS.find(x=>x.id===active));render()};
+$('resetAll').onclick=()=>{icons=structuredClone(DEFAULTS);localStorage.setItem(STORE,JSON.stringify(icons));localStorage.setItem(STORE_REV,REV);render();$('status').textContent='Default correnti ripristinati.'};
+$('copy').onclick=()=>{apply();navigator.clipboard&&navigator.clipboard.writeText(JSON.stringify(icons,null,2));$('status').textContent='JSON copiato negli appunti.'};
+$('save').onclick=()=>{apply();localStorage.setItem(STORE,JSON.stringify(icons));$('status').textContent='Salvato in questo browser.'};
+render();
+</script>
+</body>
+</html>

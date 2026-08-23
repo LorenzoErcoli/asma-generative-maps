@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASMA - tastiera scacchiera</title>
+<style>
+  :root{--bg:#111;--panel:#1b1b1b;--ink:#f6f1e8;--muted:#aaa;--line:#3a3a3a;--accent:#ffb24d}
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+  body{display:grid;grid-template-columns:minmax(260px,330px) 1fr;gap:12px;padding:12px}
+  aside{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;max-height:calc(100vh - 24px)}
+  h1{font-size:16px;margin:0 0 4px}
+  p{font-size:12px;color:var(--muted);line-height:1.35;margin:0 0 12px}
+  .tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  button{min-height:42px;border:1px solid var(--line);border-radius:7px;background:#292929;color:var(--ink);font:inherit;font-size:12px}
+  button.active{background:var(--accent);border-color:var(--accent);color:#17120b;font-weight:700}
+  .actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
+  main{display:grid;place-items:center;min-height:calc(100vh - 24px)}
+  #board{width:min(calc(100vh - 24px),calc(100vw - 380px));aspect-ratio:1;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);background:#2c2015;border:18px solid #8a633d;outline:14px solid #20170f;gap:3px}
+  #board:before{content:"";position:absolute}
+  main{position:relative}
+  .marker{position:absolute;width:4.2%;aspect-ratio:1;border:3px solid #000;z-index:4}
+  .tl{left:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);top:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);background:#e12222}
+  .tr{right:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);top:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);background:#136dff}
+  .br{right:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);bottom:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);background:#ffd21a}
+  .bl{left:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);bottom:calc(50% - min(calc(100vh - 24px),calc(100vw - 380px))/2);background:#21b14b}
+  .cell{position:relative;background:#d9d7b6;display:grid;place-items:center;overflow:hidden}
+  .cell.alt{background:#9b744b}
+  .cell.alt:before{content:"";position:absolute;inset:0;background:
+    linear-gradient(14deg,rgba(255,255,255,.10),rgba(255,255,255,0) 34%,rgba(0,0,0,.10) 70%,rgba(255,255,255,.06)),
+    repeating-linear-gradient(168deg,rgba(80,47,23,.20) 0 3px,rgba(180,136,85,.18) 4px 10px);
+    opacity:.55}
+  .tile{position:absolute;inset:9%;display:grid;place-items:center;border:5px solid #111;background:#d63d36;color:#fff;border-radius:50%;box-shadow:0 4px 10px rgba(0,0,0,.22)}
+  .terrain{border-radius:50%;box-shadow:0 4px 10px rgba(0,0,0,.22)}
+  .water{background:#006cb6}.mountain{background:#744018}.hill{background:#5c8e24}
+  .symbol{width:84%;height:84%;display:grid;place-items:center}
+  .symbol svg{width:100%;height:100%;overflow:visible}
+  .name{display:none}
+  .code{display:none}
+  .bit{background:#fff}.bit.on{background:#000}
+  .empty .tile{display:none}
+  @media (max-width:800px){
+    body{display:block;padding:8px}
+    aside{max-height:none;margin-bottom:8px}
+    #board{width:100%;border-width:12px}
+    .marker{width:7%}
+    .tl{left:0;top:0}.tr{right:0;top:0}.br{right:0;bottom:0}.bl{left:0;bottom:0}
+  }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Tastiera digitale</h1>
+  <p>Aprila su iPad, mettila fullscreen e inquadra la scacchiera con lo scanner. Le pedine ora usano solo icone grandi, senza lettere.</p>
+  <div class="tools" id="tools"></div>
+  <div class="actions">
+    <button id="clear">Pulisci</button>
+    <button id="demo">Demo</button>
+    <button id="colorTest">Test colori</button>
+    <button id="send">Invia locale</button>
+    <button id="full">Fullscreen</button>
+  </div>
+</aside>
+<main>
+  <div class="marker tl"></div><div class="marker tr"></div><div class="marker br"></div><div class="marker bl"></div>
+  <div id="board"></div>
+</main>
+<script>
+"use strict";
+const N=8, KEY='asma.externalGrid.v1', CH='asma-grid-v1';
+const ICONS=[
+ {id:'chiesa',name:'Chiesa',scale:.82,dx:0,dy:1,svg:'<path d="M50 16a34 34 0 1 0 0 68 34 34 0 0 0 0-68zM46 30h8v14h14v8H54v20h-8V52H32v-8h14z"/>'},
+ {id:'cimitero',name:'Cimitero',scale:.84,dx:0,dy:2,svg:'<path d="M42 14h16v20h18v14H58v28h22v10H20V76h22V48H24V34h18z"/>'},
+ {id:'monumento',name:'Monumento',scale:.84,dx:0,dy:1,svg:'<path d="M50 12 84 80H16zM30 84h40v8H30z"/>'},
+ {id:'municipio',name:'Municipio',scale:.86,dx:0,dy:1,svg:'<path d="M16 38 50 18l34 20v8H16zM24 50h10v28H24zM45 50h10v28H45zM66 50h10v28H66zM18 82h64v8H18z"/>'},
+ {id:'piazza',name:'Piazza',scale:.82,dx:0,dy:1,svg:'<path d="M50 10 90 50 50 90 10 50zM50 30 70 50 50 70 30 50z"/>'},
+ {id:'torre',name:'Torre',scale:.84,dx:0,dy:1,svg:'<path d="M28 16h12v10h8V16h8v10h8V16h12v20H66v50H34V36h-6z"/>'},
+ {id:'mercato',name:'Mercato',scale:.86,dx:0,dy:1,svg:'<path d="M16 28h68l-8 20H64l-6-12-8 12H38l-8-12-6 12H12zM24 54h52v28H24z"/>'},
+ {id:'stazione',name:'Stazione',scale:.84,dx:0,dy:0,svg:'<path d="M24 18h52v46H24zM32 26v16h36V26zM34 52a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM66 52a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM30 82l12-12h16l12 12H58l-8-8-8 8z"/>'},
+ {id:'porto',name:'Porto',scale:.86,dx:0,dy:1,svg:'<path d="M45 12h10v18h14v10H55v26c9-2 15-9 17-20l12 4c-5 23-19 36-34 36S21 73 16 50l12-4c2 11 8 18 17 20V40H31V30h14zM38 20a12 12 0 1 1 24 0H50z"/>'},
+ {id:'ponte',name:'Ponte',scale:.88,dx:0,dy:2,svg:'<path d="M14 76h16V58c0-17 10-30 20-30s20 13 20 30v18h16v10H58V58c0-9-4-16-8-16s-8 7-8 16v28H14z"/>'},
+ {id:'porta',name:'Porta',scale:.84,dx:0,dy:1,svg:'<path d="M20 18h60v68H62V48c0-9-5-16-12-16S38 39 38 48v38H20zM44 86V50c0-4 2-7 6-7s6 3 6 7v36z"/>'},
+ {id:'biblioteca',name:'Biblioteca',scale:.86,dx:0,dy:1,svg:'<path d="M16 24c14-4 25-2 34 7 9-9 20-11 34-7v54c-14-4-25-2-34 7-9-9-20-11-34-7zM28 38v28c6 0 12 2 17 6V42c-5-4-11-5-17-4zM55 42v30c5-4 11-6 17-6V38c-6-1-12 0-17 4z"/>'},
+ {id:'teatro',name:'Teatro',scale:.84,dx:0,dy:0,svg:'<path d="M50 14c22 0 34 12 34 30 0 22-14 40-34 40S16 66 16 44c0-18 12-30 34-30zM29 36c8 8 14 8 21 0zM50 36c7 8 13 8 21 0zM34 62c8 9 24 9 32 0z"/>'},
+ {id:'giardino',name:'Giardino',scale:.84,dx:0,dy:1,svg:'<path d="M48 86V60C30 58 20 46 20 30c16-1 27 5 34 18 5-17 16-28 32-29 3 23-9 38-30 42v25z"/>'},
+ {id:'fontana',name:'Fontana',scale:.82,dx:0,dy:2,svg:'<path d="M46 14h8v18h14v10H32V32h14zM22 52h56c-3 20-14 32-28 32S25 72 22 52zM34 60c6 7 26 7 32 0z"/>'},
+ {id:'osteria',name:'Osteria',scale:.84,dx:0,dy:0,svg:'<path d="M24 20h36v40c0 11-8 19-18 19S24 71 24 60zM64 30h8c8 0 12 6 12 14s-4 14-12 14h-8V47h7c3 0 5-1 5-3s-2-3-5-3h-7zM28 84h36v8H28z"/>'},
+ {id:'bottega',name:'Bottega',scale:.84,dx:0,dy:1,svg:'<path d="M28 36h44l8 48H20zM38 36c0-12 5-20 12-20s12 8 12 20H52c0-6-1-10-2-10s-2 4-2 10z"/>'},
+ {id:'locale',name:'Locale',scale:.84,dx:0,dy:0,svg:'<path d="M60 14v48c0 11-9 20-23 20-10 0-17-6-17-13s7-13 17-13c5 0 9 1 13 4V14zM60 14h24v14H60z"/>'}
+];
+const SIMPLE_SHAPES={
+  chiesa:{scale:.78,dx:0,dy:0,svg:'<path d="M50 16a34 34 0 1 0 0 68 34 34 0 0 0 0-68z"/>',detail:'<path d="M47 33h6v14h14v6H53v18h-6V53H33v-6h14z"/>'},
+  cimitero:{scale:.82,dx:0,dy:1,svg:'<path d="M42 14h16v22h20v14H58v34H42V50H22V36h20z"/>',detail:'<path d="M24 84h52v7H24z"/>'},
+  monumento:{scale:.82,dx:0,dy:1,svg:'<path d="M50 12 86 84H14z"/>',detail:'<path d="M34 84h32v7H34z"/>'},
+  municipio:{scale:.82,dx:0,dy:1,svg:'<path d="M18 22h64v60H18z"/>',detail:'<path d="M26 32h48v8H26zM30 48h8v24h-8zM46 48h8v24h-8zM62 48h8v24h-8z"/>'},
+  piazza:{scale:.78,dx:0,dy:0,svg:'<path d="M50 10 90 50 50 90 10 50z"/>',detail:'<path d="M50 32 68 50 50 68 32 50z"/>'},
+  torre:{scale:.82,dx:0,dy:0,svg:'<path d="M34 14h32v72H34z"/>',detail:'<path d="M26 14h12v12H26zM44 14h12v12H44zM62 14h12v12H62z"/>'},
+  mercato:{scale:.82,dx:0,dy:1,svg:'<path d="M14 32h72l-10 22H24zM24 58h52v26H24z"/>',detail:'<path d="M30 66h40v8H30z"/>'},
+  stazione:{scale:.82,dx:0,dy:0,svg:'<path d="M20 20h60v56H20z"/>',detail:'<path d="M30 30h40v18H30zM31 60a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM69 60a7 7 0 1 0 0 14 7 7 0 0 0 0-14z"/>'},
+  porto:{scale:.82,dx:0,dy:0,svg:'<path d="M44 12h12v22h20v12H56v34H44V46H24V34h20z"/>',detail:'<path d="M24 56c4 18 14 28 26 28s22-10 26-28l10 4c-6 24-20 36-36 36S20 84 14 60z"/>'},
+  bottega:{scale:.80,dx:0,dy:0,svg:'<path d="M28 36h44l10 48H18z"/>',detail:'<path d="M38 36c0-12 5-20 12-20s12 8 12 20H52c0-6-1-10-2-10s-2 4-2 10z"/>'},
+  ponte:{scale:.82,dx:0,dy:3,svg:'<path d="M14 76h18V58c0-18 9-30 18-30s18 12 18 30v18h18v12H58V58c0-8-3-14-8-14s-8 6-8 14v30H14z"/>',detail:'<path d="M22 66h56v6H22z"/>'},
+  porta:{scale:.82,dx:0,dy:0,svg:'<path d="M22 16h56v72H58V50c0-8-3-14-8-14s-8 6-8 14v38H22z"/>',detail:'<path d="M44 88V52c0-4 2-7 6-7s6 3 6 7v36z"/>'},
+  biblioteca:{scale:.82,dx:0,dy:0,svg:'<path d="M14 24c15-5 27-2 36 7 9-9 21-12 36-7v56c-15-5-27-2-36 7-9-9-21-12-36-7z"/>',detail:'<path d="M28 40v26c6 0 12 2 17 6V44c-5-4-11-5-17-4zM55 44v28c5-4 11-6 17-6V40c-6-1-12 0-17 4z"/>'},
+  teatro:{scale:.80,dx:0,dy:0,svg:'<path d="M50 16c22 0 36 13 36 32 0 22-15 38-36 38S14 70 14 48c0-19 14-32 36-32z"/>',detail:'<path d="M28 38c8 8 15 8 22 0zM50 38c7 8 14 8 22 0zM34 62c8 8 24 8 32 0z"/>'},
+  giardino:{scale:.82,dx:0,dy:0,svg:'<path d="M50 84C26 66 18 42 28 22c24 1 43 19 48 44-9 10-18 16-26 18z"/>',detail:'<path d="M34 34c14 10 24 22 31 38l-7 4c-7-17-16-28-29-37z"/>'},
+  fontana:{scale:.80,dx:0,dy:2,svg:'<path d="M22 50h56c-2 22-14 34-28 34S24 72 22 50z"/>',detail:'<path d="M46 14h8v20h16v10H30V34h16zM34 60c6 7 26 7 32 0z"/>'},
+  osteria:{scale:.82,dx:0,dy:0,svg:'<path d="M22 18h40v44c0 12-9 20-20 20S22 74 22 62z"/>',detail:'<path d="M66 30h8c8 0 12 6 12 14s-4 14-12 14h-8V47h7c3 0 5-1 5-3s-2-3-5-3h-7zM28 86h36v7H28z"/>'},
+  locale:{scale:.82,dx:0,dy:0,svg:'<path d="M58 14v50c0 12-9 20-23 20-10 0-18-6-18-14s8-14 18-14c5 0 9 1 13 4V14z"/>',detail:'<path d="M58 14h26v14H58z"/>'}
+};
+function applySimpleShapes(list){list.forEach(icon=>{if(SIMPLE_SHAPES[icon.id])Object.assign(icon,SIMPLE_SHAPES[icon.id])})}
+applySimpleShapes(ICONS);
+const TERR=[['water','Acqua'],['hill','Rilievo']];
+const TOOLS=[
+  ['empty','Vuoto',null],
+  ...TERR.map(t=>['terrain',t[1],t[0]]),
+  ...ICONS.map(c=>['place',c.name,c.id]),
+  ['jolly','Jolly','0']
+];
+let tool=TOOLS[3], grid=Array.from({length:N},()=>Array(N).fill(null)), ord=0;
+const board=document.getElementById('board'), tools=document.getElementById('tools');
+const catById=Object.fromEntries(ICONS.map((c,i)=>[c.id,{...c,n:i+1}]));
+const ICON_BOOST=1.06;
+const CAT_COLOR={
+  chiesa:'#e33b2f',cimitero:'#e33b2f',monumento:'#e33b2f',
+  municipio:'#b88314',piazza:'#b88314',torre:'#b88314',
+  mercato:'#00a6a6',stazione:'#00a6a6',porto:'#00a6a6',bottega:'#00a6a6',
+  ponte:'#b54bc9',porta:'#b54bc9',
+  biblioteca:'#7c5fe4',teatro:'#7c5fe4',giardino:'#7c5fe4',fontana:'#7c5fe4',
+  osteria:'#41484b',locale:'#41484b'
+};
+function svgIcon(cat){
+  const k=cat.scale*ICON_BOOST, tr=`translate(${cat.dx} ${cat.dy}) scale(${k}) translate(${50/k-50} ${50/k-50})`;
+  return `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="#fff" transform="${tr}">${cat.svg}</g>${cat.detail?`<g fill="rgba(0,0,0,.24)" transform="${tr} scale(.72) translate(19 19)">${cat.detail}</g>`:''}</svg>`;
+}
+function renderTools(){
+  tools.innerHTML='';
+  TOOLS.forEach((t,i)=>{
+    const b=document.createElement('button');b.textContent=t[1];b.className=i===TOOLS.indexOf(tool)?'active':'';
+    b.onclick=()=>{tool=t;renderTools()};tools.appendChild(b);
+  });
+}
+function render(){
+  board.innerHTML='';
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const d=document.createElement('div');d.className='cell '+((r+c)%2?'alt':'');
+    d.onclick=()=>place(r,c);
+    const v=grid[r][c];
+    if(v){
+      if(v.kind==='terrain'){
+        const symbol=v.terrain==='water'?'<path d="M14 36c10-10 20 10 30 0s20 10 30 0c5-5 9-5 12-2v13c-10-9-20 10-30 0s-20 10-30 0c-5-5-9-5-12-2zM14 60c10-10 20 10 30 0s20 10 30 0c5-5 9-5 12-2v13c-10-9-20 10-30 0s-20 10-30 0c-5-5-9-5-12-2z"/>':'<path d="M12 78 42 24l16 28 10-16 20 42z M42 44 32 62h21z M68 54l-7 13h16z"/>';
+        d.innerHTML=`<div class="tile terrain ${v.terrain}"><div class="symbol"><svg viewBox="0 0 100 100"><g fill="#fff">${symbol}</g></svg></div></div>`;
+      }
+      if(v.kind==='place'){
+        const cat=catById[v.cat];
+        d.innerHTML=`<div class="tile" style="background:${CAT_COLOR[cat.id]||'#d93b34'}"><div class="symbol">${svgIcon(cat)}</div></div>`;
+      }
+      if(v.kind==='jolly')d.innerHTML=`<div class="tile" style="background:#5a4a2a"><div class="symbol"><svg viewBox="0 0 100 100"><g fill="#fff"><path d="M50 13 61 39h28L67 56l8 29-25-17-25 17 8-29-22-17h28z"/></g></svg></div></div>`;
+    }
+    board.appendChild(d);
+  }
+}
+function place(r,c){
+  if(tool[0]==='empty')grid[r][c]=null;
+  if(tool[0]==='terrain')grid[r][c]={kind:'terrain',terrain:tool[2]};
+  if(tool[0]==='place')grid[r][c]={kind:'place',cat:tool[2],ord:++ord};
+  if(tool[0]==='jolly')grid[r][c]={kind:'jolly',j:+tool[2],ord:++ord};
+  render();send(false);
+}
+function send(show=true){
+  const payload={source:'ipad-board',time:Date.now(),grid};
+  try{localStorage.setItem(KEY,JSON.stringify(payload))}catch(e){}
+  try{new BroadcastChannel(CH).postMessage(payload)}catch(e){}
+  if(show)alert('Griglia inviata nel browser locale. Per iPad remoto usa la camera scanner.');
+}
+function demo(){
+  grid=Array.from({length:N},()=>Array(N).fill(null));ord=0;
+  [[0,2],[1,2],[2,3],[3,3],[4,4],[5,4],[6,5],[7,5]].forEach(([r,c])=>grid[r][c]={kind:'terrain',terrain:'water'});
+  [['piazza',3,4],['municipio',2,4],['chiesa',4,2],['ponte',4,3],['mercato',5,2],['teatro',1,5],['stazione',6,6]].forEach(([cat,r,c])=>grid[r][c]={kind:'place',cat,ord:++ord});
+  render();send(false);
+}
+function colorTest(){
+  const cols=[
+    {kind:'terrain',terrain:'water'},
+    {kind:'terrain',terrain:'hill'},
+    {kind:'place',cat:'chiesa'},
+    {kind:'place',cat:'bottega'},
+    {kind:'place',cat:'piazza'},
+    {kind:'place',cat:'fontana'},
+    {kind:'place',cat:'porta'},
+    {kind:'place',cat:'osteria'}
+  ];
+  ord=0;
+  grid=Array.from({length:N},(_,r)=>Array.from({length:N},(_,c)=>({...cols[c],ord:++ord})));
+  render();send(false);
+}
+document.getElementById('clear').onclick=()=>{grid=Array.from({length:N},()=>Array(N).fill(null));ord=0;render();send(false)};
+document.getElementById('demo').onclick=demo;
+document.getElementById('colorTest').onclick=colorTest;
+document.getElementById('send').onclick=()=>send(true);
+document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen();
+renderTools();demo();
+</script>
+</body>
+</html>

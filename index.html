@@ -41,6 +41,10 @@
   button.act:hover{border-color:var(--accent);background:#463829}
   button.primary{background:var(--accent);color:#231a10;border-color:var(--accent);font-weight:700}
   button.ghost{background:transparent}
+  .small-links{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+  .small-links a{display:block;text-align:center;text-decoration:none;font-family:inherit;font-size:12px;
+    cursor:pointer;padding:7px;border-radius:7px;border:1px solid var(--line);background:#241d16;color:var(--ink)}
+  .small-links a:hover{border-color:var(--accent);background:#30261d}
   .hint{font-size:10.5px;color:var(--muted);line-height:1.5;margin-top:5px}
   #middle{width:330px;min-width:330px;height:100%;display:flex;flex-direction:column;align-items:center;
     justify-content:center;border-right:1px solid var(--line);background:#1b1611;padding:14px}
@@ -107,6 +111,11 @@
         <button class="act ghost" id="btnClear">Pulisci scacchiera</button>
         <button class="act ghost" id="btnDemo">Esempio dimostrativo</button>
       </div>
+      <div class="small-links">
+        <a href="ipad-board.html" target="_blank">Tastiera iPad</a>
+        <a href="scanner.html" target="_blank">Scanner camera</a>
+        <a href="icon-lab.html" target="_blank">Lab icone</a>
+      </div>
       <div class="hint" id="status">Pronto.</div>
     </div>
   </aside>
@@ -133,7 +142,7 @@ const N=8, CELL=110, PAD=110;
 const MAPW=N*CELL+PAD*2;          // 1100 : area carta (citta' + campagna)
 const SIDE=380;                    // colonna legenda/itinerario
 const SVGW=MAPW+SIDE, SVGH=MAPW;
-const STEP=8;                      // risoluzione campionamento campi
+const STEP=10;                     // risoluzione campionamento campi
 const GW=Math.ceil(MAPW/STEP), GH=GW;
 const THR=0.44;                    // soglia campo urbano
 const WTHR=0.50;                   // soglia campo acqua
@@ -214,6 +223,9 @@ const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 /* ---------------- stato ---------------- */
 let grid=empty(), order=0, tool={type:'place',cat:'chiesa'}, jollyText=Array(NJOLLY).fill('');
 function empty(){return Array.from({length:N},()=>Array(N).fill(null))}
+const EXTERNAL_GRID_KEY='asma.externalGrid.v1';
+const EXTERNAL_GRID_CHANNEL='asma-grid-v1';
+let externalGridChannel=null;
 
 /* =====================================================================
    UI console + scacchiera
@@ -254,24 +266,62 @@ function buildConsole(){
 }
 function setActive(n){document.querySelectorAll('.tool').forEach(t=>t.classList.remove('active'));if(n)n.classList.add('active')}
 
-const gridEl=$('grid');let painting=false;
+const gridEl=$('grid');let painting=false, activePointerId=null;
+const canPaintContinuously=()=>tool.type==='terrain'||tool.type==='erase';
 function buildGrid(){
   gridEl.innerHTML='';
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){
     const cell=el('div','cell'+((r+c)%2?' dark':''));
-    cell.onmousedown=e=>{e.preventDefault();painting=true;apply(r,c)};
-    cell.onmouseenter=()=>{if(painting)apply(r,c)};
+    cell.onpointerdown=e=>{
+      e.preventDefault();
+      activePointerId=e.pointerId;
+      painting=canPaintContinuously();
+      if(cell.setPointerCapture)cell.setPointerCapture(e.pointerId);
+      apply(r,c);
+    };
+    cell.onpointerenter=()=>{if(painting)apply(r,c)};
     gridEl.appendChild(cell);
   }
 }
-document.onmouseup=()=>painting=false;
+document.onpointerup=document.onpointercancel=()=>{painting=false;activePointerId=null};
+
+function orderedPawns(){
+  const out=[];
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const v=grid[r][c];
+    if(v&&(v.kind==='place'||v.kind==='jolly'))out.push(v);
+  }
+  return out.sort((a,b)=>(a.ord||0)-(b.ord||0));
+}
+function renumberOrder(){
+  const pawns=orderedPawns();
+  pawns.forEach((v,i)=>v.ord=i+1);
+  order=pawns.length;
+}
+function nextOrder(){
+  order=Math.max(order,...orderedPawns().map(v=>v.ord||0));
+  return ++order;
+}
 
 function apply(r,c){
   const cur=grid[r][c];
-  if(tool.type==='erase')grid[r][c]=null;
+  let shouldRenumber=false;
+  if(tool.type==='erase'){
+    shouldRenumber=!!(cur&&(cur.kind==='place'||cur.kind==='jolly'));
+    grid[r][c]=null;
+  }
   else if(tool.type==='terrain')grid[r][c]={kind:'terrain',terrain:tool.k};
-  else if(tool.type==='place')grid[r][c]=(cur&&cur.kind==='place'&&cur.cat===tool.cat)?null:{kind:'place',cat:tool.cat,ord:++order};
-  else if(tool.type==='jolly')grid[r][c]=(cur&&cur.kind==='jolly'&&cur.j===tool.j)?null:{kind:'jolly',j:tool.j,ord:++order};
+  else if(tool.type==='place'){
+    const remove=cur&&cur.kind==='place'&&cur.cat===tool.cat;
+    shouldRenumber=remove||!!(cur&&(cur.kind==='place'||cur.kind==='jolly'));
+    grid[r][c]=remove?null:{kind:'place',cat:tool.cat,ord:nextOrder()};
+  }
+  else if(tool.type==='jolly'){
+    const remove=cur&&cur.kind==='jolly'&&cur.j===tool.j;
+    shouldRenumber=remove||!!(cur&&(cur.kind==='place'||cur.kind==='jolly'));
+    grid[r][c]=remove?null:{kind:'jolly',j:tool.j,ord:nextOrder()};
+  }
+  if(shouldRenumber)renumberOrder();
   drawGrid();scheduleGen();
 }
 function drawGrid(){
@@ -347,6 +397,26 @@ function contour(F,thr){
     if(pts.length>8)loops.push(pts);
   }
   return loops;
+}
+function simplifyLoop(poly,eps=3.5){
+  const pts=poly.slice();
+  if(pts.length>1&&dist(pts[0],pts[pts.length-1])<.1)pts.pop();
+  if(pts.length<5)return pts;
+  const rdp=line=>{
+    if(line.length<=2)return line;
+    let best=0,at=-1;
+    for(let i=1;i<line.length-1;i++){
+      const d=distSeg(line[i],line[0],line[line.length-1]);
+      if(d>best){best=d;at=i}
+    }
+    if(best<=eps)return [line[0],line[line.length-1]];
+    return rdp(line.slice(0,at+1)).slice(0,-1).concat(rdp(line.slice(at)));
+  };
+  let split=1,far=0;
+  for(let i=1;i<pts.length;i++){const d=dist(pts[0],pts[i]);if(d>far){far=d;split=i}}
+  const a=rdp(pts.slice(0,split+1));
+  const b=rdp(pts.slice(split).concat([pts[0]]));
+  return a.slice(0,-1).concat(b.slice(0,-1));
 }
 function chaikin(pts,it){
   for(let k=0;k<it;k++){
@@ -434,11 +504,28 @@ const microFor=(c,ch)=>{const m=MICRO[ch]||MICRO.classico;return m[c]||m._};
 /* =====================================================================
    GENERAZIONE
    ===================================================================== */
-let lastSVG='';
+let lastSVG='',mapDirty=false,lastDiagnostics=null;
+function setMap(svg,status){
+  lastSVG=svg;
+  mapDirty=false;
+  $('mapHost').innerHTML=svg;
+  if(status)setStatus(status);
+}
+function activeJollySignature(){
+  const used=new Set();
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const v=grid[r][c];
+    if(v&&v.kind==='jolly')used.add(v.j);
+  }
+  return [...used].sort((a,b)=>a-b).map(i=>i+':'+jollyText[i]).join('|');
+}
+function nearWaterCell(p,waterCells,maxDist=1.8){
+  return waterCells.some(([r,c])=>Math.hypot(r-p.r,c-p.c)<=maxDist);
+}
 
 function generate(){
   const ch=$('character').value, P=PAL[ch]||PAL.classico;
-  const seed=hashStr(JSON.stringify(grid)+ch+jollyText.join('|'))||1;
+  const seed=hashStr(JSON.stringify(grid)+ch+activeJollySignature())||1;
   RND=mulberry32(seed); NSEED=(seed%100000)+1;
 
   /* --- 1. leggo la scacchiera --- */
@@ -461,8 +548,13 @@ function generate(){
     return {cells,cls,proper,label,cx,cy};
   });
   const hasWater=terr.water.length>0;
-  // il porto senza acqua non ha senso: cade
-  const places=pawns.filter(p=>p.jolly||!CAT[p.cat].needsWater||hasWater);
+  const nearRiver=p=>waterComps.some(cp=>cp.cls==='fiume'&&nearWaterCell(p,cp.cells,2.2));
+  // Le infrastrutture d'acqua restano valide solo se la pedina indica davvero
+  // una riva o un corso: evita porti e ponti isolati nel tessuto urbano.
+  const places=pawns.filter(p=>p.jolly
+    ||(p.cat==='ponte'?nearRiver(p)
+    :!CAT[p.cat].needsWater||(hasWater&&nearWaterCell(p,terr.water))));
+  const ignored=pawns.length-places.length;
   for(const p of places){
     p.gx=p.c+.5+rr(-.16,.16); p.gy=p.r+.5+rr(-.16,.16);
     p.x=W(p.gx); p.y=W(p.gy);
@@ -470,22 +562,26 @@ function generate(){
   }
 
   if(!places.length){
-    document.getElementById('mapHost').innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}"><rect width="${SVGW}" height="${SVGH}" fill="${P.land}"/><text x="${MAPW/2}" y="${SVGH/2}" text-anchor="middle" font-size="20" fill="${P.ink}" font-style="italic" font-family="Georgia,serif">terra incognita — nessuna pedina sulla scacchiera</text></svg>`;
-    setStatus('Scacchiera vuota.');return;
+    lastDiagnostics={places:0,streets:0,roadComponents:0,deadEnds:0,roadWaterViolations:0,
+      placeAccessFailures:0,riverDangling:0,railCrossings:0,railUnbridged:0,urbanComponents:0};
+    const msg=ignored?'nessuna pedina valida':'nessuna pedina sulla scacchiera';
+    setMap(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}"><rect width="${SVGW}" height="${SVGH}" fill="${P.land}"/><text x="${MAPW/2}" y="${SVGH/2}" text-anchor="middle" font-size="20" fill="${P.ink}" font-style="italic" font-family="Georgia,serif">terra incognita — ${msg}</text></svg>`,ignored?`${ignored} pedine ignorate.`:'Scacchiera vuota.');
+    return;
   }
 
   /* --- 2. LA NATURA PRIMA. L'acqua non e' un ritaglio finale: e' il dato di
          partenza, e la citta' nasce a causa sua (al guado, sulle rive). --- */
-  const mst=mstEdges(places);
   const {WF,WL,rivers,island}=waterField(waterComps,places);
-  const F=urbanField(places,mst,terr,rivers);   // il campo urbano SUBISCE il fiume
+  snapPlacesToLand(places,WF,rivers);
+  places.forEach((p,i)=>p.ord=i+1);
+  const centre=urbanCentre(places);
+  const mst=mstEdges(places);
+  const F=urbanField(places,mst,terr,rivers,centre);   // il campo urbano SUBISCE il fiume
 
   /* --- 3. forma della citta' --- */
   let cityLoops=contour(F,THR).map(l=>chaikin(l,3)).filter(l=>polyArea(l)>18000);
   cityLoops.sort((a,b)=>polyArea(b)-polyArea(a));
   const city=cityLoops[0]||[];
-  const centre=[places.reduce((s,p)=>s+p.x*(CAT[p.cat]?.civic||1),0)/places.reduce((s,p)=>s+(CAT[p.cat]?.civic||1),0),
-                places.reduce((s,p)=>s+p.y*(CAT[p.cat]?.civic||1),0)/places.reduce((s,p)=>s+(CAT[p.cat]?.civic||1),0)];
 
   const inCity=(x,y)=>fieldAt(F,x,y)>THR;
   const inWater=(x,y)=>fieldAt(WF,x,y)>WTHR;
@@ -496,36 +592,51 @@ function generate(){
   /* --- 5. tessuto: isolati + strade come tagli --- */
   const waterLoops=contour(WL,WTHR).map(l=>chaikin(l,2));   // solo laghi/mare
   const walled=places.some(p=>p.cat==='porta');   // le mura esistono solo con la pedina porta
-  const bridges=makeBridges(rivers,F,WF,places,centre);
+  const bridges=makeBridges(rivers,F,WF,places,centre,mst);
   // le mura cingono il NUCLEO ANTICO, non il confine della citta': il tessuto
   // continua fuori con i borghi. E' cosi' che sono fatte Lucca, Firenze, Vienna.
   const core=walled?coreLoop(F,cityLoops):null;
-  const net=buildStreets(cityLoops,centre,F,WF,districts,places,walled,waterLoops,waterComps,rivers,bridges,core);
-  const chains=net.chains, blocks=net.blocks;
+  const net=buildStreets(cityLoops,centre,F,WF,districts,places,walled,waterLoops,waterComps,rivers,bridges,core,mst,terr);
+  const chains=net.chains;
+  snapLandmarksToStreets(places,chains,WF);
+  const plazas=makePlazas(places,chains,F,WF);
+  // Gli isolati preliminari guidano la suddivisione, ma non sono edificabili:
+  // riparazioni e raccordi cambiano la rete dopo la loro creazione. Il
+  // tessuto finale viene ricavato soltanto ora dalla rete stradale definitiva.
+  const blocks=finalUrbanBlocks(F,WF,chains,plazas,rivers,centre,cityLoops);
 
   /* --- 6. verde: i parchi occupano ISOLATI interi, non macchie a caso --- */
-  const parks=makeParks(places,F,centre,inWater,blocks);
+  const parks=makeParks(places,F,centre,inWater,blocks,chains);
 
   /* --- 7. infrastrutture puntuali --- */
-  const gates=core?places.filter(p=>p.cat==='porta').map(p=>({p,at:nearestOn(core,[p.x,p.y])})).filter(g=>g.at):[];
-  const rail=makeRail(places,centre);
+  const gates=core?places.filter(p=>p.cat==='porta').map(p=>({p,at:nearestOnLand(core,[p.x,p.y],WF)})).filter(g=>g.at):[];
+  const rail=makeRail(places,centre,F,WF,bridges,terr);
   const docks=places.filter(p=>p.cat==='porto').map(p=>makeDock(p,WF)).filter(Boolean);
-  const suburbs=makeSuburbs(F,centre);
+  const suburbs=makeSuburbs(F,centre,WF);
   const villages=makeVillages(suburbs,F,WF);
-  // le strade di campagna nascono dai borghi e puntano alla citta'
-  const country=[];
+  // Le strade di campagna raggiungono vere testate della rete urbana. Puntare
+  // al centro di un monumento faceva sparire il tracciato sotto la campitura e
+  // lasciava le vie periferiche senza una continuazione leggibile.
+  const fringe=[];
+  for(const c of chains.filter(c=>c.rank!=='quay'))for(const p of [c.pts[0],c.pts[c.pts.length-1]]){
+    if(fieldAt(F,p[0],p[1])<THR+.08&&fieldAt(WF,p[0],p[1])<WTHR-.04)
+      fringe.push({p,rank:c.rank});
+  }
+  const country=[],countryUsed=new Set(),fringeUse=new Map();
   for(const v of villages){
-    const a0=Math.atan2(centre[1]-v.y,centre[0]-v.x);
-    const pts=[[v.x,v.y]];let x=v.x,y=v.y,a=a0;
-    for(let i=0;i<120;i++){
-      a+=rr(-.09,.09);x+=Math.cos(a)*13;y+=Math.sin(a)*13;
-      if(x<4||x>MAPW-4||y<4||y>MAPW-4)break;
-      pts.push([x,y]);
-      if(fieldAt(F,x,y)>THR+.12)break;      // e' arrivata in citta'
+    let target=null;
+    for(const f of fringe){
+      const used=fringeUse.get(f)||0;
+      const d=dist([v.x,v.y],f.p)+used*90+(f.rank==='lane'?35:0);
+      if(!target||d<target.d)target={f,d};
     }
-    if(pts.length>4)country.push(pts);
+    const end=target?target.f.p:centre;
+    const pts=directRoad([v.x,v.y],end,WF,bridges,terr)
+      ||routeRoad([v.x,v.y],end,F,WF,bridges,terr,countryUsed);
+    if(pts&&pts.length>1){country.push(pts);if(target)fringeUse.set(target.f,(fringeUse.get(target.f)||0)+1)}
   }
   const fillers=makeFillers(F,inWater,parks,places);
+  lastDiagnostics=mapDiagnostics(chains,bridges,rail,F,WF,places,rivers,cityLoops,blocks,plazas);
 
   /* --- 8. render --- */
   const S=[];
@@ -539,12 +650,16 @@ function generate(){
   const cfarms=makeFarms(F,WF,parks,villages);
   S.push(countryside(villages,country,cfields,cfarms,P));
 
-  // citta'
-  for(const l of cityLoops)S.push(`<path d="${dPoly(l,1)}" fill="${P.built}" stroke="none"/>`);
+  // suolo urbano appena percettibile; la forma leggibile viene dagli isolati
+  for(const l of cityLoops)S.push(`<path d="${dPoly(l,1)}" fill="${P.built}" opacity=".07" stroke="none"/>`);
+  S.push(urbanFabricLayer(blocks,parks,P));
   // verde
   S.push(parksLayer(parks,P));
   // strade (bianche sul costruito -> gli isolati emergono)
   S.push(streetsLayer(chains,P));
+  // le piazze sono vuoti reali nel tessuto; coprono il centro delle strade
+  // che vi confluiscono e ne lasciano leggibili soltanto gli accessi.
+  S.push(plazasLayer(plazas,P));
   // acqua sopra tutto: interrompe il tessuto e le strade
   S.push(waterLayer(waterLoops,rivers,waterComps,P,docks));
   // ponti sopra l'acqua
@@ -552,7 +667,7 @@ function generate(){
   // ferrovia
   S.push(rail?railLayer(rail,P):'');
   // mura + porte
-  S.push(wallsLayer(core,gates,P,places));
+  S.push(wallsLayer(core,gates,P,places,WF));
   // riempitivi + landmark
   S.push(fillersLayer(fillers,P));
   S.push(landmarksLayer(places,P));
@@ -571,10 +686,9 @@ function generate(){
   S.push(sidebar(places,waterComps,terr,ch,P,districts));
   S.push('</svg>');
 
-  lastSVG=S.join('');
-  $('mapHost').innerHTML=lastSVG;
   const split=bridges.length===0&&waterComps.some(c=>c.cls==='fiume');
-  setStatus(`${places.length} luoghi · ${blocks.length} isolati · ${chains.length} strade · ${districts.length} quartieri`
+  setMap(S.join(''),`${places.length} luoghi · ${blocks.length} isolati · ${chains.length} strade · ${districts.length} quartieri`
+    +(ignored?` · ${ignored} pedine ignorate`:'')
     +(split?' · ⚠ nessun ponte: città tagliata in due':''));
 }
 
@@ -603,13 +717,26 @@ function classWater(cells){
   const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
   const sr=Math.max(...rs)-Math.min(...rs), sc=Math.max(...cs)-Math.min(...cs);
   const tT=rs.includes(0),tB=rs.includes(N-1),tL=cs.includes(0),tR=cs.includes(N-1);
-  const border=tT||tB||tL||tR;
   if((tT&&tB)||(tL&&tR))return 'fiume';
-  if(border){
-    const along=(tT||tB)?sc>=sr:(tL||tR)?sr>=sc:false;
-    return along&&cells.length>=3?'mare':'fiume';
-  }
-  return 'lago';
+  // Una costa e' una sequenza appoggiata allo stesso bordo e sviluppata
+  // parallelamente ad esso. Una linea che entra nella carta e' invece fiume.
+  const edgeRuns=[
+    {n:cells.filter(([r])=>r===0).length,along:sc,deep:sr},
+    {n:cells.filter(([r])=>r===N-1).length,along:sc,deep:sr},
+    {n:cells.filter(([,c])=>c===0).length,along:sr,deep:sc},
+    {n:cells.filter(([,c])=>c===N-1).length,along:sr,deep:sc},
+  ];
+  if(edgeRuns.some(e=>e.n>=2&&e.along>=Math.max(1,e.deep*1.25)))return 'mare';
+
+  // Rapporto tra gli autovalori della nuvola di celle: riconosce anche un
+  // fiume interno o diagonale, senza dipendere dal fatto che tocchi il bordo.
+  const mr=rs.reduce((a,v)=>a+v,0)/cells.length, mc=cs.reduce((a,v)=>a+v,0)/cells.length;
+  let srr=0,scc=0,src=0;
+  for(const [r,c] of cells){const dr=r-mr,dc=c-mc;srr+=dr*dr;scc+=dc*dc;src+=dr*dc}
+  const tr=srr+scc, disc=Math.sqrt((srr-scc)**2+4*src*src);
+  const major=(tr+disc)/2, minor=(tr-disc)/2;
+  const elongation=Math.sqrt((major+.15)/(minor+.15));
+  return elongation>=1.75?'fiume':'lago';
 }
 
 /* ---------------- campo urbanita' ---------------- */
@@ -626,10 +753,23 @@ function mstEdges(P){
   }
   return E;
 }
-function urbanField(places,mst,terr,rivers){
+function urbanCentre(places){
+  const anchors=places.filter(p=>(CAT[p.cat]?.civic||0)>1);
+  const candidates=anchors.length?anchors:places;
+  let seed=candidates[0],best=Infinity;
+  for(const p of candidates){
+    const score=places.reduce((s,q)=>s+dist([p.x,p.y],[q.x,q.y])*(CAT[q.cat]?.civic||1),0);
+    if(score<best){best=score;seed=p}
+  }
+  const near=places.filter(p=>dist([p.x,p.y],[seed.x,seed.y])<2.7*CELL);
+  const sw=near.reduce((s,p)=>s+(CAT[p.cat]?.civic||1),0)||1;
+  return [near.reduce((s,p)=>s+p.x*(CAT[p.cat]?.civic||1),0)/sw,
+          near.reduce((s,p)=>s+p.y*(CAT[p.cat]?.civic||1),0)/sw];
+}
+function urbanField(places,mst,terr,rivers,centre){
   const s=GW+1, F=new Float32Array(s*s);
-  const sig=1.04*CELL, sigC=.68*CELL;
-  const cx=places.reduce((a,p)=>a+p.x,0)/places.length, cy=places.reduce((a,p)=>a+p.y,0)/places.length;
+  const sig=.86*CELL, sigC=.46*CELL;
+  const cx=centre[0],cy=centre[1];
   const mtn=terr.mountain.map(([r,c])=>[W(c+.5),W(r+.5)]);
   const hll=terr.hill.map(([r,c])=>[W(c+.5),W(r+.5)]);
   for(let j=0;j<=GH;j++)for(let i=0;i<=GW;i++){
@@ -641,11 +781,14 @@ function urbanField(places,mst,terr,rivers){
     }
     for(const [a,b] of mst){
       const d=distSeg([x,y],[places[a].x,places[a].y],[places[b].x,places[b].y]);
-      v+=.72*Math.exp(-(d*d)/(2*sigC*sigC));
+      const span=dist([places[a].x,places[a].y],[places[b].x,places[b].y]);
+      const amp=.10+.48*clamp((3*CELL-span)/(1.7*CELL),0,1);
+      v+=amp*Math.exp(-(d*d)/(2*sigC*sigC));
     }
     const dc=Math.hypot(x-cx,y-cy);
-    v+=.55*Math.exp(-(dc*dc)/(2*(1.7*CELL)**2));
+    v+=.38*Math.exp(-(dc*dc)/(2*(1.35*CELL)**2));
     // le citta' nascono SULLE rive: una fascia di richiamo lungo il fiume
+    let riverPull=0;
     for(const rv of (rivers||[])){
       let dm=Infinity;const P=rv.pts;
       for(let k=0;k<P.length-1;k+=2){
@@ -656,8 +799,12 @@ function urbanField(places,mst,terr,rivers){
       // il richiamo della riva vale INTORNO alla citta', non lungo tutto il
       // corso fino a fuori carta (altrimenti la citta' deborda e il contorno
       // non si chiude piu')
-      if(dm<300)v+=.40*Math.exp(-((dm-44)**2)/(2*70*70))*Math.exp(-(dc*dc)/(2*(2.4*CELL)**2));
+      if(dm<300){
+        const pull=(rv.tributary?.14:.28)*Math.exp(-((dm-44)**2)/(2*70*70))*Math.exp(-(dc*dc)/(2*(2.4*CELL)**2));
+        riverPull=Math.max(riverPull,pull);
+      }
     }
+    v+=riverPull;
     // i rilievi respingono la citta'
     let m=1;
     for(const q of mtn){const d=Math.hypot(x-q[0],y-q[1]);m*=1-.85*Math.exp(-(d*d)/(2*(.62*CELL)**2))}
@@ -676,18 +823,33 @@ function waterField(comps,places){
   const s=GW+1, WFa=new Float32Array(s*s), WLa=new Float32Array(s*s);
   const src=[];   // {x,y,sig,amp}
   const rivers=[];
-  for(const cp of comps){
-    const cls=cp.cls, cells=cp.cells;
-
-    if(cls==='fiume'&&cells.length>=2){
+  const riverCps=comps.filter(cp=>cp.cls==='fiume'&&cp.cells.length>=2);
+  const borderCount=cp=>cp.cells.filter(([r,c])=>r===0||r===N-1||c===0||c===N-1).length;
+  riverCps.sort((a,b)=>(b.cells.length+borderCount(b)*3)-(a.cells.length+borderCount(a)*3));
+  const rawAxes=[];
+  for(let ri=0;ri<riverCps.length;ri++){
+      const cp=riverCps[ri],cells=cp.cells;
       // Il fiume NON e' piu' un campo campionato: campionare una fascia di 25px
       // su una griglia di 8px da solo ~3 campioni di traverso, e con la
       // deformazione si strozzava e SI SPEZZAVA. Ora e' geometria esatta:
       // linea d'asse + due sponde calcolate. Non puo' rompersi per costruzione.
-      let path=riverAxis(cells);
-      const out=(p,q,k)=>{const d=[q[0]-p[0],q[1]-p[1]],L=Math.hypot(...d)||1;
-        return [q[0]+d[0]/L*CELL*k, q[1]+d[1]/L*CELL*k]};
-      path=[out(path[1],path[0],3), ...path, out(path[path.length-2],path[path.length-1],3)];
+      let path=riverAxis(cells),tributary=false;
+      const rs=cells.map(p=>p[0]),cs=cells.map(p=>p[1]);
+      const explicit=((rs.includes(0)&&rs.includes(N-1))||(cs.includes(0)&&cs.includes(N-1)));
+      if(ri===0||explicit){
+        path=extendRiverToFrame(path);
+      }else{
+        let join=null;
+        for(const end of [0,path.length-1])for(const axis of rawAxes)for(const q of axis){
+          const d=dist(path[end],q);if(!join||d<join.d)join={end,q,d};
+        }
+        if(join&&join.d<5*CELL){
+          if(join.end===0)path.reverse();
+          path=[extendRiverPoint(path[0],path[1]),...path,join.q];
+          tributary=true;
+        }else path=extendRiverToFrame(path);
+      }
+      rawAxes.push(path);
       const sm=chaikinOpen(path,3);
       const even=[];
       for(let i=0;i<sm.length-1;i++){
@@ -700,14 +862,16 @@ function waterField(comps,places){
       for(let i=0;i<even.length;i++){
         const p=even[Math.max(0,i-1)],q=even[Math.min(even.length-1,i+1)];
         const dx=q[0]-p[0],dy=q[1]-p[1],L=Math.hypot(dx,dy)||1;
-        const off=19*fbm(i*.022,7.3,2);
+        const off=(i===0||i===even.length-1)?0:(tributary?11:19)*fbm(i*.022,7.3,2);
         mea.push([even[i][0]-dy/L*off, even[i][1]+dx/L*off]);
       }
       const axis=chaikinOpen(mea,1);
-      rivers.push({pts:axis, cp, cls});
-      continue;
-    }
+      rivers.push({pts:axis, cp, cls:'fiume',tributary});
+  }
 
+  for(const cp of comps){
+    const cls=cp.cls,cells=cp.cells;
+    if(cls==='fiume'&&cells.length>=2)continue;
     const sig=(cls==='laghetto')?.30*CELL:(cls==='lago')?.46*CELL:.50*CELL;
     for(const [r,c] of cells)src.push({x:W(c+.5),y:W(r+.5),sig,amp:1});
     // mare: prolungo le sorgenti fuori dal tabellone fino a uscire dalla carta
@@ -721,20 +885,15 @@ function waterField(comps,places){
       }
     }
   }
-  // isola: se un fiume passa vicino al centro citta', ci apro un'isola (bump negativo)
-  const cx=places.reduce((a,p)=>a+p.x,0)/places.length, cy=places.reduce((a,p)=>a+p.y,0)/places.length;
-  let island=null;
-  for(const rv of rivers){
-    let best=null;
-    for(const p of rv.pts){const d=Math.hypot(p[0]-cx,p[1]-cy);if(!best||d<best.d)best={p,d}}
-    if(best&&best.d<1.8*CELL){island={x:best.p[0],y:best.p[1],r:15};break}
-  }
+  // Le isole non vengono inventate automaticamente: senza una pedina che le
+  // motivi creavano strozzature e falsi guadi proprio nel centro della citta'.
+  const island=null;
 
   const HW=12;                        // semilarghezza: ~88 m (un Arno, non un Danubio)
   // semilarghezza variabile lungo il corso + isola = allargamento e biforcazione
   for(const rv of rivers){
     rv.hw=rv.pts.map((p,i)=>{
-      let h=HW*(1+.26*fbm(i*.016,4.7,2));
+      let h=(rv.tributary?8.5:HW)*(1+.26*fbm(i*.016,4.7,2));
       if(island){
         const di=Math.hypot(p[0]-island.x,p[1]-island.y);
         h*=1+1.05*Math.exp(-(di*di)/(2*(HW*3.4)**2));
@@ -787,36 +946,66 @@ function waterField(comps,places){
   }
   return {WF:WFa,WL:WLa,rivers,island};
 }
-/* La linea d'asse del fiume. Prima provo a percorrere la catena di celle;
-   se la catena si biforca o si ingrossa il cammino si ferma a meta' e il
-   fiume RISULTAVA INTERROTTO. In quel caso ordino le celle lungo l'asse
-   principale (PCA): robusto sempre. */
+/* La linea d'asse e' il cammino geodetico piu' lungo nel grafo delle celle.
+   Rimane contigua anche con diagonali, spessori e piccole biforcazioni. */
 function riverAxis(cells){
-  let ch=orderChain(cells);
-  if(ch.length<cells.length){
-    const pts=cells.map(([r,c])=>[W(c+.5),W(r+.5)]);
-    const c0=cen(pts);let sxx=0,sxy=0,syy=0;
-    for(const p of pts){const dx=p[0]-c0[0],dy=p[1]-c0[1];sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy}
-    const th=.5*Math.atan2(2*sxy,sxx-syy),ax=[Math.cos(th),Math.sin(th)];
-    const proj=p=>(p[0]-c0[0])*ax[0]+(p[1]-c0[1])*ax[1];
-    return pts.slice().sort((a,b)=>proj(a)-proj(b));
+  const key=([r,c])=>r*N+c, byKey=new Map(cells.map((p,i)=>[key(p),i]));
+  let best={d:-1,path:[0]};
+  for(let start=0;start<cells.length;start++){
+    const d=Array(cells.length).fill(Infinity),prev=Array(cells.length).fill(-1),done=new Set();
+    d[start]=0;
+    while(done.size<cells.length){
+      let u=-1,bd=Infinity;
+      for(let i=0;i<cells.length;i++)if(!done.has(i)&&d[i]<bd){u=i;bd=d[i]}
+      if(u<0)break;
+      done.add(u);
+      const [r,c]=cells[u];
+      for(const [dr,dc] of NB8){
+        const v=byKey.get((r+dr)*N+c+dc);if(v==null||done.has(v))continue;
+        const nd=d[u]+Math.hypot(dr,dc);
+        if(nd<d[v]){d[v]=nd;prev[v]=u}
+      }
+    }
+    for(let end=0;end<cells.length;end++)if(d[end]>best.d&&d[end]<Infinity){
+      const path=[];for(let u=end;u>=0;u=prev[u]){path.push(u);if(u===start)break}
+      best={d:d[end],path:path.reverse()};
+    }
   }
-  return ch.map(([r,c])=>[W(c+.5),W(r+.5)]);
+  return best.path.map(i=>[W(cells[i][1]+.5),W(cells[i][0]+.5)]);
 }
-// ordina le celle di un fiume in catena (dalla punta piu' lontana)
-function orderChain(cells){
-  const set=new Set(cells.map(([r,c])=>r*N+c));
-  const nb=(r,c)=>NB8.map(([a,b])=>[r+a,c+b]).filter(([a,b])=>set.has(a*N+b));
-  let ends=cells.filter(([r,c])=>nb(r,c).length<=1);
-  const start=ends[0]||cells[0];
-  const seen=new Set([start[0]*N+start[1]]);const path=[start];
-  let cur=start;
-  while(true){
-    const n=nb(cur[0],cur[1]).find(([r,c])=>!seen.has(r*N+c));
-    if(!n)break;
-    seen.add(n[0]*N+n[1]);path.push(n);cur=n;
+function extendRiverPoint(p,q){
+  const dx=p[0]-q[0],dy=p[1]-q[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+  const ts=[];
+  if(ux>0)ts.push((MAPW+24-p[0])/ux);else if(ux<0)ts.push((-24-p[0])/ux);
+  if(uy>0)ts.push((MAPW+24-p[1])/uy);else if(uy<0)ts.push((-24-p[1])/uy);
+  const t=Math.min(...ts.filter(v=>v>0));
+  return [p[0]+ux*t,p[1]+uy*t];
+}
+function extendRiverToFrame(path){
+  if(path.length<2)return path;
+  return [extendRiverPoint(path[0],path[1]),...path,extendRiverPoint(path[path.length-1],path[path.length-2])];
+}
+function snapPlacesToLand(places,WF,rivers){
+  const dry=(x,y)=>x>22&&x<MAPW-22&&y>22&&y<MAPW-22&&fieldAt(WF,x,y)<WTHR-.08;
+  const shore=(x,y)=>{
+    if(!dry(x,y))return false;
+    for(let a=0;a<Math.PI*2;a+=Math.PI/8)
+      if(fieldAt(WF,x+Math.cos(a)*18,y+Math.sin(a)*18)>WTHR)return true;
+    return false;
+  };
+  for(const p of places){
+    if(p.cat==='ponte')continue;
+    const valid=p.cat==='porto'?shore:dry;
+    if(valid(p.x,p.y))continue;
+    let best=null;
+    for(let rad=6;rad<=1.15*CELL&&!best;rad+=6){
+      for(let a=0;a<Math.PI*2;a+=Math.PI/18){
+        const x=p.x+Math.cos(a)*rad,y=p.y+Math.sin(a)*rad;
+        if(valid(x,y)){best=[x,y];break}
+      }
+    }
+    if(best){p.x=best[0];p.y=best[1];p.gx=toBoard(p.x);p.gy=toBoard(p.y)}
   }
-  return path;
 }
 
 /* ---------------- quartieri ---------------- */
@@ -832,8 +1021,18 @@ function makeDistricts(places,F,centre){
     }
     seeds.push(best.p);
   }
-  const D=seeds.map((s,i)=>({i,x:s.x,y:s.y,theta:rr(0,Math.PI),spacing:rr(28,42),
-    name:'Quartiere '+(GROUP_NAME[CAT[s.cat]?.group]||word()),num:i+1,sx:0,sy:0,n:0}));
+  // La griglia urbana nasce dalla direzione prevalente delle pedine, che sono
+  // anche i poli della rete primaria. Prima ogni quartiere ruotava a caso e la
+  // citta' sembrava un collage di lottizzazioni incompatibili.
+  let sxx=0,sxy=0,syy=0;
+  for(const p of places){const dx=p.x-centre[0],dy=p.y-centre[1];sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy}
+  const baseTheta=.5*Math.atan2(2*sxy,sxx-syy);
+  const D=seeds.map((s,i)=>{
+    const radial=Math.atan2(s.y-centre[1],s.x-centre[0]);
+    const theta=baseTheta+Math.sin(radial*2)*.11;
+    return {i,x:s.x,y:s.y,theta,spacing:rr(25,34),
+      name:'Quartiere '+(GROUP_NAME[CAT[s.cat]?.group]||word()),num:i+1,sx:0,sy:0,n:0};
+  });
   // baricentro reale campionando il campo
   for(let y=0;y<MAPW;y+=12)for(let x=0;x<MAPW;x+=12){
     if(fieldAt(F,x,y)<=THR)continue;
@@ -843,6 +1042,7 @@ function makeDistricts(places,F,centre){
   return D.filter(d=>d.n>40);
 }
 function nearestD(D,x,y){
+  if(!D.length)return {x,y,theta:0,cx:x,cy:y,num:0,name:''};
   let b=D[0],bd=Infinity;
   for(const d of D){const q=(d.x-x)**2+(d.y-y)**2;if(q<bd){bd=q;b=d}}
   return b;
@@ -850,13 +1050,17 @@ function nearestD(D,x,y){
 
 /* ---------------- verde ---------------- */
 const softBlock=(poly,c)=>chaikin(poly.map(p=>[c[0]+(p[0]-c[0])*.86, c[1]+(p[1]-c[1])*.86]),3);
-function makeParks(places,F,centre,inWater,blocks){
+function makeParks(places,F,centre,inWater,blocks,chains=[]){
   const parks=[];
   const taken=new Set();
+  const crossed=b=>{
+    const inner=softBlock(b.poly,b.c);
+    return chains.some(c=>c.rank!=='quay'&&densify(c.pts,8).some(q=>inPoly(q,inner)));
+  };
   const blockAt=(x,y)=>{
     for(let i=0;i<blocks.length;i++){
       if(taken.has(i))continue;
-      if(inPoly([x,y],blocks[i].poly)){taken.add(i);return blocks[i]}
+      if(inPoly([x,y],blocks[i].poly)&&!crossed(blocks[i])){taken.add(i);return blocks[i]}
     }
     return null;
   };
@@ -873,7 +1077,7 @@ function makeParks(places,F,centre,inWater,blocks){
   }
   // qualche isolato verde sparso (piazze alberate)
   const big=blocks.map((b,i)=>({b,i})).filter(o=>{
-    if(taken.has(o.i)||o.b.A<1200)return false;
+    if(taken.has(o.i)||o.b.A<1200||crossed(o.b))return false;
     const ax=axisOf(o.b.poly);
     return ax.len*ax.len < o.b.A*5.5;          // niente parchi a striscia
   });
@@ -1110,15 +1314,18 @@ function subdivide(poly,depth,C,streets,blocks){
       }
     }
   }
-  // isolato interamente in acqua: non e' un isolato
-  if(fieldAt(C.WF,c[0],c[1])>WTHR)return;
+  // Un lago puo' contenere il centroide di un grande poligono urbano senza
+  // rendere acquatica tutta la citta'. Si continua a suddividere e si scartano
+  // soltanto le foglie finali il cui centro resta davvero nell'acqua.
 
   /* TAGLIO IMPOSTO DAL PONTE. Il ponte non e' un pezzo di strada appiccicato
      sull'acqua: e' un asse che TIRA una strada dentro il tessuto, e gli
      isolati gli si dispongono attorno. */
   // l'asse del ponte vale solo sugli isolati vicini e gia' abbastanza piccoli:
   // altrimenti il primo taglio e' una lama dritta che attraversa tutta la citta'
-  if(C.axes.length && depth<11 && A<70000){
+  // Un asse di ponte organizza il quartiere una volta sola. Ripeterlo dentro
+  // ogni figlio ricorsivo produce ventagli di strade quasi sovrapposte.
+  if(C.axes.length && depth<2 && A<70000){
     for(const ax of C.axes){
       if(dist(ax.p,c)>200)continue;
       const n=[-ax.dir[1],ax.dir[0]];
@@ -1135,14 +1342,28 @@ function subdivide(poly,depth,C,streets,blocks){
     }
   }
 
-  // densita' CONTINUA: fitto al cuore, largo verso la campagna
-  const target = 620 + 5400*Math.pow(u,1.8);
-  if(depth>20 || A < target*rr(.75,1.35)){ blocks.push({poly,u,c,A}); return }
+  // Densita' continua: il centro resta minuto, ma la periferia non diventa una
+  // manciata di super-isolati. A questa scala anche i quartieri moderni devono
+  // mostrare una vera maglia secondaria.
+  let target = 950 + 4200*Math.pow(u,1.55);
+  let nearby=0;
+  if(C.rivers.length>1)target*=3.35;
+  if(C.rivers.length){
+    nearby=C.rivers.reduce((n,rv)=>{
+      const q=riverAt([rv],c);return n+(q&&q.d<CELL*1.70?1:0);
+    },0);
+    if(nearby>1)target*=1.80;
+    else if(nearby===1)target*=1.25;
+  }
+  if(depth>22 || A < target*rr(.90,1.10)){
+    if(fieldAt(C.WF,c[0],c[1])<=WTHR)blocks.push({poly,u,c,A,riverPressure:nearby});
+    return;
+  }
 
   const {ax,len}=axisOf(poly);
   let ang=Math.atan2(ax[1],ax[0])+Math.PI/2;
-  if(u<.30) ang+=rr(-.5,.5);
-  else      ang=snapAng(ang,C.theta(c[0],c[1]))+rr(-.09,.09);
+  if(u<.22) ang+=rr(-.24,.24);                      // nucleo storico
+  else      ang=snapAng(ang,C.theta(c[0],c[1]))+rr(-.025,.025);
 
   for(let attempt=0;attempt<2;attempt++){
     const dir=[Math.cos(ang),Math.sin(ang)];
@@ -1161,9 +1382,9 @@ function subdivide(poly,depth,C,streets,blocks){
       const ah=h.length>=3?polyArea(h):0;
       if(ah>A/2)a=mid; else b=mid;
     }
-    mid+=(hi-lo)*rr(-.09,.09);                       // un filo di irregolarita'
+    mid+=(hi-lo)*rr(-.035,.035);                     // isolati simili, non identici
     const p=[n[0]*mid,n[1]*mid];
-    const cut=curvedCut(poly,p,dir, u<.30?rr(1.5,4):rr(0,1.3), u<.30?18:26);
+    const cut=curvedCut(poly,p,dir, u<.22?rr(1.2,3):rr(0,.45), u<.22?14:6);
     const a1=cut?polyArea(cut.P1):0, a2=cut?polyArea(cut.P2):0;
     if(cut&&a1>A*.14&&a2>A*.14){
       streets.push({pts:cut.W,depth});
@@ -1173,12 +1394,22 @@ function subdivide(poly,depth,C,streets,blocks){
     }
     ang+=Math.PI/2;                                   // taglio sbilanciato: ruoto e riprovo
   }
-  blocks.push({poly,u,c,A});
+  if(fieldAt(C.WF,c[0],c[1])<=WTHR)blocks.push({poly,u,c,A,riverPressure:nearby});
 }
-// spezza una polilinea dove entra in acqua o esce dalla citta'
+function densify(pts,gap=5){
+  const out=[];
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i],b=pts[i+1],L=dist(a,b),n=Math.max(1,Math.ceil(L/gap));
+    for(let k=0;k<n;k++){const t=k/n;out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t])}
+  }
+  if(pts.length)out.push(pts[pts.length-1]);
+  return out;
+}
+// spezza una polilinea dove entra in acqua o esce dalla citta'. Campionare
+// ogni segmento impedisce a una corda lunga di saltare un fiume sottile.
 function clipLand(pts,F,WF){
   const out=[];let run=[];
-  for(const p of pts){
+  for(const p of densify(pts)){
     if(fieldAt(WF,p[0],p[1])>WTHR-.06 || fieldAt(F,p[0],p[1])<THR){
       if(run.length>1)out.push(run); run=[];
     } else run.push(p);
@@ -1196,9 +1427,9 @@ const RANKL=L=>L>360?'blvd':L>190?'street':L>105?'minor':'lane';
    Dove la citta' sta su entrambe le sponde, prima o poi si costruisce un
    ponte. Attraversano perpendicolari al corso e atterrano sui lungofiume,
    cosi' si LEGGONO: si capisce che li' si passa. */
-function makeBridges(rivers,F,WF,places,centre){
+function makeBridges(rivers,F,WF,places,centre,mst){
   const out=[];
-  const cross=(p,t)=>{                      // attraversa perpendicolare al corso
+  const cross=(p,t,force=false)=>{          // attraversa perpendicolare al corso
     const nx=-t[1],ny=t[0];
     for(const s of [1,-1]){
       let d=0;while(d<3*CELL&&fieldAt(WF,p[0]+nx*s*d,p[1]+ny*s*d)>WTHR-.05)d+=3;
@@ -1207,31 +1438,44 @@ function makeBridges(rivers,F,WF,places,centre){
     }
     const A=[p[0]+nx*(dA+11), p[1]+ny*(dA+11)];
     const B=[p[0]-nx*(dB+11), p[1]-ny*(dB+11)];
-    if(fieldAt(F,A[0],A[1])<THR||fieldAt(F,B[0],B[1])<THR)return null;  // citta' su entrambe
+    if(!force&&(fieldAt(F,A[0],A[1])<THR||fieldAt(F,B[0],B[1])<THR))return null;
     return {a:A,b:B};
   };
   for(const rv of rivers){
     const P=rv.pts;
     // il ponte monumentale: dove il cliente ha messo la pedina
     for(const q of places.filter(z=>z.cat==='ponte')){
+      if(q.onBridge)continue;
       let bi=-1,bd=Infinity;
       for(let k=1;k<P.length-1;k++){const d=dist(P[k],[q.x,q.y]);if(d<bd){bd=d;bi=k}}
       if(bi<0||bd>2.2*CELL)continue;
       const t=[P[bi+1][0]-P[bi-1][0],P[bi+1][1]-P[bi-1][1]];
       const L=Math.hypot(...t)||1;
-      const b=cross(P[bi],[t[0]/L,t[1]/L]);
-      if(b){b.major=true;b.name=q.name;q.onBridge=P[bi];out.push(b)}
+      const b=cross(P[bi],[t[0]/L,t[1]/L],true);
+      if(b){
+        b.major=true;b.name=q.name;b.river=rv;q.onBridge=P[bi];
+        q.x=P[bi][0];q.y=P[bi][1];out.push(b);
+      }
     }
-    // e i ponti che la citta' si costruisce da sola, lungo il corso
-    let last=-999;
-    for(let k=6;k<P.length-6;k++){
-      if(dist(P[k],P[Math.max(0,last)])<95&&last>=0)continue;
+    // La citta' aggiunge solo pochi attraversamenti necessari, privilegiando
+    // il centro. Il vecchio passo fisso produceva una fila di ponti casuali.
+    const candidates=[];
+    for(let k=6;k<P.length-6;k+=4){
       if(fieldAt(F,P[k][0],P[k][1])<THR+.06)continue;      // solo dentro citta'
       if(out.some(b=>dist([(b.a[0]+b.b[0])/2,(b.a[1]+b.b[1])/2],P[k])<85))continue;
       const t=[P[k+1][0]-P[k-1][0],P[k+1][1]-P[k-1][1]];
       const L=Math.hypot(...t)||1;
       const b=cross(P[k],[t[0]/L,t[1]/L]);
-      if(b){b.major=false;out.push(b);last=k}
+      if(b)candidates.push({b,k,score:dist(P[k],centre)});
+    }
+    candidates.sort((a,b)=>a.score-b.score);
+    const automatici=clamp(Math.ceil(places.length/10),1,3);
+    let added=0;
+    for(const c of candidates){
+      if(added>=automatici)break;
+      const mid=[(c.b.a[0]+c.b.b[0])/2,(c.b.a[1]+c.b.b[1])/2];
+      if(out.some(b=>dist([(b.a[0]+b.b[0])/2,(b.a[1]+b.b[1])/2],mid)<145))continue;
+      c.b.major=false;c.b.river=rv;out.push(c.b);added++;
     }
   }
   return out;
@@ -1252,7 +1496,152 @@ function coreLoop(F,cityLoops){
   best.sort((a,b)=>polyArea(b)-polyArea(a));
   return best[0];
 }
-function buildStreets(cityLoops,centre,F,WF,districts,places,walled,waterLoops,bodies,rivers,bridges,core){
+
+/* Routing territoriale per ponti e raccordi. Non viene usato per collegare le
+   attrazioni: numerazione e itinerario non devono modificare la viabilita'. */
+function routeRoadCore(a,b,F,WF,bridges,terr,used){
+  const RS=18, cols=Math.floor(MAPW/RS)+1, rows=cols, total=cols*rows;
+  const point=i=>[(i%cols)*RS,((i/cols)|0)*RS];
+  const bridgeAt=(x,y)=>(bridges||[]).some(br=>distSeg([x,y],br.a,br.b)<23);
+  const passable=(x,y)=>x>=18&&x<=MAPW-18&&y>=18&&y<=MAPW-18
+    &&(fieldAt(WF,x,y)<WTHR-.03||bridgeAt(x,y));
+  const nearestNode=p=>{
+    const ci=clamp(Math.round(p[0]/RS),1,cols-2),cj=clamp(Math.round(p[1]/RS),1,rows-2);
+    let best=null;
+    for(let rad=0;rad<=4&&!best;rad++)for(let dj=-rad;dj<=rad;dj++)for(let di=-rad;di<=rad;di++){
+      const i=ci+di,j=cj+dj;if(i<1||i>=cols-1||j<1||j>=rows-1)continue;
+      const q=[i*RS,j*RS];if(passable(q[0],q[1]))best=j*cols+i;
+    }
+    return best;
+  };
+  const start=nearestNode(a),goal=nearestNode(b);if(start==null||goal==null)return null;
+  const mountains=(terr.mountain||[]).map(([r,c])=>[W(c+.5),W(r+.5)]);
+  const g=new Float64Array(total);g.fill(Infinity);
+  const prev=new Int32Array(total);prev.fill(-1);
+  const closed=new Uint8Array(total),heap=[];
+  const push=(id,f)=>{
+    let i=heap.length;heap.push({id,f});
+    while(i){const p=(i-1)>>1;if(heap[p].f<=f)break;heap[i]=heap[p];i=p;heap[i]={id,f}}
+  };
+  const pop=()=>{
+    const root=heap[0],last=heap.pop();if(heap.length){
+      heap[0]=last;let i=0;
+      while(true){let l=i*2+1,r=l+1,m=i;if(l<heap.length&&heap[l].f<heap[m].f)m=l;if(r<heap.length&&heap[r].f<heap[m].f)m=r;if(m===i)break;[heap[i],heap[m]]=[heap[m],heap[i]];i=m}
+    }return root;
+  };
+  const gp=point(goal);g[start]=0;push(start,0);
+  const dirs=[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]];
+  while(heap.length){
+    const cur=pop(),u=cur.id;if(closed[u])continue;closed[u]=1;if(u===goal)break;
+    const ui=u%cols,uj=(u/cols)|0;
+    for(const [di,dj] of dirs){
+      const ni=ui+di,nj=uj+dj;if(ni<1||ni>=cols-1||nj<1||nj>=rows-1)continue;
+      const v=nj*cols+ni,[x,y]=point(v);if(!passable(x,y)||closed[v])continue;
+      const from=point(u);
+      if(!densify([from,[x,y]],2).every(p=>passable(p[0],p[1])))continue;
+      if(di&&dj){
+        const p1=point(uj*cols+ni),p2=point(nj*cols+ui);
+        if(!passable(p1[0],p1[1])||!passable(p2[0],p2[1]))continue;
+      }
+      let cost=Math.hypot(di,dj);
+      const urban=fieldAt(F,x,y);cost*=1+clamp((THR-urban)*3,0,2.2);
+      for(const m of mountains){const d=dist([x,y],m);if(d<CELL*.8)cost+=5*(1-d/(CELL*.8))}
+      if(used.has(v))cost*=.42;
+      const ng=g[u]+cost;if(ng>=g[v])continue;
+      g[v]=ng;prev[v]=u;push(v,ng+dist([x,y],gp)/RS);
+    }
+  }
+  if(prev[goal]<0&&start!==goal)return null;
+  const ids=[];for(let u=goal;u>=0;u=prev[u]){ids.push(u);if(u===start)break}
+  ids.reverse();ids.forEach(i=>used.add(i));
+  let pts=ids.map(point);
+  const clear=(p,q)=>densify([p,q],2).every(z=>passable(z[0],z[1]));
+  const simple=[];
+  for(let i=0;i<pts.length;){
+    simple.push(pts[i]);let j=pts.length-1;while(j>i+1&&!clear(pts[i],pts[j]))j--;i=j;
+    if(i===pts.length-1)break;
+  }
+  if(!clear(a,simple[0])||!clear(simple[simple.length-1],b))return null;
+  simple[0]=a;simple[simple.length-1]=b;
+  if(!densify(simple,.75).every(p=>passable(p[0],p[1])))return null;
+  return simple;
+}
+function routeRoad(a,b,F,WF,bridges,terr,used){
+  // Il percorso e' una ricerca su regioni di terra collegate da portali-ponte.
+  // Puo' quindi attraversare piu' corsi, ma sempre sulle testate esatte.
+  const search=(start,end,available,depth)=>{
+    const dry=routeRoadCore(start,end,F,WF,[],terr,new Set(used));
+    if(dry)return dry;
+    if(depth<=0)return null;
+    let best=null;
+    const candidates=available.slice().sort((x,y)=>
+      Math.min(dist(start,x.a),dist(start,x.b))-Math.min(dist(start,y.a),dist(start,y.b)));
+    for(const br of candidates){
+      const rest=available.filter(x=>x!==br);
+      for(const [A,B] of [[br.a,br.b],[br.b,br.a]]){
+        const left=routeRoadCore(start,A,F,WF,[],terr,new Set(used));
+        if(!left)continue;
+        const tail=search(B,end,rest,depth-1);if(!tail)continue;
+        const pts=left.concat([A,B],tail.slice(1)),L=polyLen(pts);
+        if(!best||L<best.L)best={pts,L};
+      }
+    }
+    return best?best.pts:null;
+  };
+  return search(a,b,(bridges||[]).slice(),Math.min(4,(bridges||[]).length));
+}
+function directRoad(a,b,WF,bridges,terr){
+  const L=dist(a,b);if(L<20)return [a,b];
+  const dx=(b[0]-a[0])/L,dy=(b[1]-a[1])/L,nx=-dy,ny=dx;
+  const bend=Math.sin((a[0]+a[1]*3+b[0]*5+b[1]*7)*.017)*Math.min(22,L*.055);
+  const mid=[(a[0]+b[0])/2+nx*bend,(a[1]+b[1])/2+ny*bend];
+  const mountains=(terr.mountain||[]).map(([r,c])=>[W(c+.5),W(r+.5)]);
+  const bridgeAt=p=>(bridges||[]).some(br=>distSeg(p,br.a,br.b)<7);
+  const clear=densify([a,mid,b],.75).every(p=>
+    p[0]>=18&&p[0]<=MAPW-18&&p[1]>=18&&p[1]<=MAPW-18
+    &&(fieldAt(WF,p[0],p[1])<WTHR-.03||bridgeAt(p))
+    &&!mountains.some(m=>dist(p,m)<CELL*.42));
+  return clear?[a,mid,b]:null;
+}
+function establishRoadHierarchy(chains,F,WF,bridges,terr,cityLoops){
+  const motor=()=>chains.filter(c=>c.rank!=='quay');
+  // Il ponte e' l'unica infrastruttura che puo' attraversare l'acqua. Le sue
+  // testate si innestano sulla via esistente piu' vicina, non su un monumento.
+  for(const br of bridges){
+    chains.push({pts:[br.a,br.b],rank:'bridge',routeType:'bridge'});
+    for(const landing of [br.a,br.b]){
+      let nearest=null;
+      for(const c of motor()){
+        if(c.routeType==='bridge')continue;
+        const q=nearestPointOnPolyline(landing,c.pts);
+        if(q&&(!nearest||q.d<nearest.d))nearest=q;
+      }
+      if(!nearest||nearest.d<2||nearest.d>95)continue;
+      const pts=directRoad(landing,nearest.q,WF,[],terr)
+        ||routeRoad(landing,nearest.q,F,WF,[],terr,new Set());
+      if(pts)chains.push({pts,rank:br.major?'blvd':'street',routeType:'bridge-approach'});
+    }
+  }
+  // Una sola dorsale esistente ancora la rete. Promuovere una strada in ogni
+  // frammento proteggeva anche maglie isolate e costringeva poi a unirle con
+  // diagonali artificiali.
+  const ordinary=motor().filter(c=>!c.structural&&c.routeType!=='bridge');
+  const promoted=new Set();
+  for(const loop of cityLoops){
+    const inside=ordinary.filter(c=>{
+      const p=c.pts[(c.pts.length/2)|0];return inPoly(p,loop);
+    }).sort((a,b)=>polyLen(b.pts)-polyLen(a.pts));
+    if(inside.length)promoted.add(inside[0]);
+  }
+  if(!promoted.size&&ordinary.length)promoted.add(ordinary.slice().sort((a,b)=>polyLen(b.pts)-polyLen(a.pts))[0]);
+  for(const road of promoted){
+    road.structural=true;road.routeType='urban-axis';
+    if(road.rank==='lane'||road.rank==='minor')road.rank='street';
+  }
+  return chains;
+}
+
+function buildStreets(cityLoops,centre,F,WF,districts,places,walled,waterLoops,bodies,rivers,bridges,core,mst,terr){
   const city=cityLoops[0]||[];
   const Rmax=city.length?Math.max(...city.map(p=>dist(p,centre))):3*CELL;
   const C={
@@ -1271,9 +1660,25 @@ function buildStreets(cityLoops,centre,F,WF,districts,places,walled,waterLoops,b
   for(const loop of cityLoops) subdivide(loop.slice(),0,C,rawStreets,blocks);
 
   const chains=[];
-  for(const s of rawStreets)
-    for(const seg of clipLand(s.pts,F,WF))
-      if(polyLen(seg)>22)chains.push({pts:seg,rank:s.quay?'quay':RANKL(polyLen(seg))});
+  for(const s of rawStreets){
+    // Conservo le porzioni asciutte: scartare tutta la via quando una sola
+    // campata incontrava un lago svuotava interi quartieri. Il riparatore
+    // aggancia i tratti validi alla rete e pota quelli che restano sulle rive.
+    for(const seg of clipLand(s.pts,F,WF)){
+      if(polyLen(seg)<=22)continue;
+      // Valuto la fascia nel punto rappresentativo del singolo tratto gia'
+      // spezzato. Usare il massimo lungo tutta la linea eliminerebbe anche
+      // una via sana che sfiora soltanto una confluenza.
+      const m=seg[(seg.length/2)|0];
+      const pressure=(rivers||[]).reduce((n,rv)=>{
+        const q=riverAt([rv],m);return n+(q&&q.d<CELL*1.72?1:0);
+      },0);
+      // Nelle fasce interfluviali restano soltanto gli assi principali. I
+      // tagli ricorsivi profondi creavano micro-strade sovrapposte.
+      if(pressure>1&&(s.depth>4||polyLen(seg)<70))continue;
+      chains.push({pts:seg,rank:s.quay?'quay':RANKL(polyLen(seg)),depth:s.depth,riverPressure:pressure});
+    }
+  }
 
   /* --- lungofiume: dalle SPONDE esatte del poligono, quindi continuo --- */
   for(const rv of (rivers||[])){
@@ -1310,8 +1715,416 @@ function buildStreets(cityLoops,centre,F,WF,districts,places,walled,waterLoops,b
     for(const seg of clipLand(ring.concat([ring[0]]),F,WF))
       if(polyLen(seg)>90)chains.push({pts:seg,rank:'blvd'});
   }
+  establishRoadHierarchy(chains,F,WF,bridges,terr,cityLoops);
+  return {chains:repairStreetNetwork(chains,F,WF,places,bridges,terr,cityLoops),blocks};
+}
 
-  return {chains,blocks};
+function pointPolylineDist(p,line){
+  let best=Infinity;
+  for(let i=0;i<line.length-1;i++)best=Math.min(best,distSeg(p,line[i],line[i+1]));
+  return best;
+}
+function nearestPointOnPolyline(p,line){
+  let best=null;
+  for(let i=0;i<line.length-1;i++){
+    const a=line[i],b=line[i+1],dx=b[0]-a[0],dy=b[1]-a[1];
+    const t=clamp(((p[0]-a[0])*dx+(p[1]-a[1])*dy)/((dx*dx+dy*dy)||1),0,1);
+    const q=[a[0]+dx*t,a[1]+dy*t],d=dist(p,q);
+    if(!best||d<best.d)best={q,d,i};
+  }
+  return best;
+}
+function snapLandmarksToStreets(places,chains,WF){
+  const roads=chains.filter(c=>c.rank!=='quay'&&c.rank!=='bridge');
+  for(const p of places){
+    // Una piazza non e' un'icona da appoggiare alla via: viene trasformata
+    // piu' avanti in uno spazio pubblico che modifica isolati e accessi.
+    if(p.cat==='ponte'||p.cat==='porto'||p.cat==='piazza'||p.onBridge)continue;
+    let nearest=null;
+    for(const c of roads){
+      const q=nearestPointOnPolyline([p.x,p.y],c.pts);
+      if(q&&densify([[p.x,p.y],q.q],4).some(v=>fieldAt(WF,v[0],v[1])>=WTHR-.04))continue;
+      if(q&&(!nearest||q.d<nearest.d))nearest=q;
+    }
+    if(!nearest||nearest.d<=11||nearest.d>CELL*1.55)continue;
+    const vx=p.x-nearest.q[0],vy=p.y-nearest.q[1],L=Math.hypot(vx,vy)||1;
+    const candidates=[
+      [nearest.q[0]+vx/L*9,nearest.q[1]+vy/L*9],
+      [nearest.q[0]-vy/L*9,nearest.q[1]+vx/L*9],
+      [nearest.q[0]+vy/L*9,nearest.q[1]-vx/L*9],
+      nearest.q,
+    ];
+    const dry=candidates.find(q=>fieldAt(WF,q[0],q[1])<WTHR-.04);
+    if(dry){p.x=dry[0];p.y=dry[1]}
+  }
+}
+
+function makePlazas(places,chains,F,WF){
+  const roads=chains.filter(c=>c.rank!=='quay'&&c.rank!=='bridge');
+  const out=[];
+  for(const p of places.filter(p=>p.cat==='piazza')){
+    let nearest=null,road=null;
+    for(const c of roads){
+      const q=nearestPointOnPolyline([p.x,p.y],c.pts);
+      if(!q||q.d>CELL*1.45)continue;
+      if(densify([[p.x,p.y],q.q],4).some(v=>fieldAt(WF,v[0],v[1])>=WTHR-.04))continue;
+      if(!nearest||q.d<nearest.d){nearest=q;road=c}
+    }
+    let x=nearest?nearest.q[0]:p.x,y=nearest?nearest.q[1]:p.y,ang=rr(-.22,.22);
+    if(road&&nearest){
+      const a=road.pts[nearest.i],b=road.pts[Math.min(road.pts.length-1,nearest.i+1)];
+      ang=Math.atan2(b[1]-a[1],b[0]-a[0]);
+    }
+    const convergence=roads.reduce((n,c)=>n+(pointPolylineDist([x,y],c.pts)<54?1:0),0);
+    let rx=clamp(25+convergence*2.4+rr(-3,4),25,43),ry=rx*rr(.58,.78);
+    let poly=[];
+    for(let shrink=0;shrink<6;shrink++){
+      poly=[];
+      const ux=Math.cos(ang),uy=Math.sin(ang),vx=-uy,vy=ux;
+      for(let i=0;i<16;i++){
+        const t=i/16*Math.PI*2,w=1+.055*Math.sin(t*3+NSEED*.01);
+        poly.push([x+ux*Math.cos(t)*rx*w+vx*Math.sin(t)*ry*w,
+                   y+uy*Math.cos(t)*rx*w+vy*Math.sin(t)*ry*w]);
+      }
+      if(poly.every(q=>fieldAt(WF,q[0],q[1])<WTHR-.05&&fieldAt(F,q[0],q[1])>THR-.03))break;
+      rx*=.86;ry*=.86;
+    }
+    const plaza={x,y,rx,ry,ang,poly,name:p.name,place:p,accesses:convergence};
+    p.x=x;p.y=y;p.plaza=plaza;
+    const ux=Math.cos(ang),uy=Math.sin(ang),vx=-uy,vy=ux;
+    p.markerX=x+ux*rx*.72+vx*ry*.76;
+    p.markerY=y+uy*rx*.72+vy*ry*.76;
+    out.push(plaza);
+  }
+  return out;
+}
+
+/* Gli isolati visualizzati vengono polygonizzati dalla rete FINALE. Una
+   maschera a passo cartografico sottrae acqua, sedimi stradali e piazze dal
+   campo urbano; i contorni residui sono superfici realmente edificabili. */
+function finalUrbanBlocks(F,WF,chains,plazas,rivers,centre,cityLoops){
+  const s=GW+1,buildable=new Float32Array(s*s);
+  for(let j=0;j<=GH;j++)for(let i=0;i<=GW;i++){
+    const x=i*STEP,y=j*STEP;
+    buildable[j*s+i]=(fieldAt(F,x,y)>THR&&fieldAt(WF,x,y)<WTHR-.05)?1:0;
+  }
+  const clearDisk=(x,y,r)=>{
+    const x0=Math.max(0,Math.floor((x-r)/STEP)),x1=Math.min(GW,Math.ceil((x+r)/STEP));
+    const y0=Math.max(0,Math.floor((y-r)/STEP)),y1=Math.min(GH,Math.ceil((y+r)/STEP));
+    const rr2=(r+STEP*.55)**2;
+    for(let j=y0;j<=y1;j++)for(let i=x0;i<=x1;i++)
+      if((i*STEP-x)**2+(j*STEP-y)**2<=rr2)buildable[j*s+i]=0;
+  };
+  // clearDisk aggiunge gia' mezzo passo per rasterizzare una linea continua.
+  // Qui resta soltanto il margine gerarchico: valori cartografici maggiori
+  // svuotavano completamente i centri con maglia minuta.
+  const reserve={belt:4.5,blvd:4.5,quay:3,street:3,minor:2.2,lane:1.5,bridge:4};
+  for(const c of chains)for(const p of densify(c.pts,3.5))clearDisk(p[0],p[1],reserve[c.rank]||7.5);
+  for(const plaza of plazas){
+    const plazaReserve=scalePoly(plaza.poly,[plaza.x,plaza.y],1.18);
+    const minX=Math.max(0,Math.floor((plaza.x-plaza.rx*1.2-8)/STEP));
+    const maxX=Math.min(GW,Math.ceil((plaza.x+plaza.rx*1.2+8)/STEP));
+    const minY=Math.max(0,Math.floor((plaza.y-plaza.rx*1.2-8)/STEP));
+    const maxY=Math.min(GH,Math.ceil((plaza.y+plaza.rx*1.2+8)/STEP));
+    for(let j=minY;j<=maxY;j++)for(let i=minX;i<=maxX;i++)
+      if(inPoly([i*STEP,j*STEP],plazaReserve))buildable[j*s+i]=0;
+  }
+  const city=cityLoops[0]||[],Rmax=city.length?Math.max(...city.map(p=>dist(p,centre))):3*CELL;
+  const roadSamples=[];
+  for(const c of chains.filter(c=>c.rank!=='quay'))roadSamples.push(...densify(c.pts,4));
+  const conflicts=poly=>{
+    const xs=poly.map(p=>p[0]),ys=poly.map(p=>p[1]);
+    const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+    if(roadSamples.some(p=>p[0]>=x0&&p[0]<=x1&&p[1]>=y0&&p[1]<=y1&&inPoly(p,poly)))return true;
+    return plazas.some(plaza=>inPoly([plaza.x,plaza.y],poly)
+      ||poly.some(p=>inPoly(p,plaza.poly))||plaza.poly.some(p=>inPoly(p,poly)));
+  };
+  const blocks=[];
+  for(const raw of contour(buildable,.5)){
+    const candidates=[simplifyLoop(raw,3.8),simplifyLoop(raw,1.4),simplifyLoop(raw,.1)];
+    let poly=candidates.find(p=>p.length>=3&&!conflicts(p));
+    if(!poly)continue;
+    const A=polyArea(poly),c=cen(poly);
+    if(A<240||fieldAt(F,c[0],c[1])<=THR||fieldAt(WF,c[0],c[1])>=WTHR-.03)continue;
+    const riverPressure=(rivers||[]).reduce((n,rv)=>{
+      const q=riverAt([rv],c);return n+(q&&q.d<CELL*1.70?1:0);
+    },0);
+    blocks.push({poly,c,A,u:clamp(dist(c,centre)/(Rmax||1),0,1),riverPressure,final:true});
+  }
+  return blocks;
+}
+function roadSegmentClear(a,b,WF,bridges,terr){
+  const mountains=(terr.mountain||[]).map(([r,c])=>[W(c+.5),W(r+.5)]);
+  const bridgeAt=p=>(bridges||[]).some(br=>distSeg(p,br.a,br.b)<7);
+  return densify([a,b],1.5).every(p=>
+    p[0]>=18&&p[0]<=MAPW-18&&p[1]>=18&&p[1]<=MAPW-18
+    &&(fieldAt(WF,p[0],p[1])<WTHR-.03||bridgeAt(p))
+    &&!mountains.some(m=>dist(p,m)<CELL*.42));
+}
+function roadSegmentsTouch(a,b,c,d,tol=1.25){
+  if(Math.max(a[0],b[0])+tol<Math.min(c[0],d[0])||Math.max(c[0],d[0])+tol<Math.min(a[0],b[0])
+    ||Math.max(a[1],b[1])+tol<Math.min(c[1],d[1])||Math.max(c[1],d[1])+tol<Math.min(a[1],b[1]))return false;
+  const side=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+  const ab1=side(a,b,c),ab2=side(a,b,d),cd1=side(c,d,a),cd2=side(c,d,b);
+  if(ab1*ab2<=0&&cd1*cd2<=0)return true;
+  return distSeg(a,c,d)<=tol||distSeg(b,c,d)<=tol||distSeg(c,a,b)<=tol||distSeg(d,a,b)<=tol;
+}
+function polylinesTouch(A,B,tol=1.25){
+  for(let i=0;i<A.length-1;i++)for(let j=0;j<B.length-1;j++)
+    if(roadSegmentsTouch(A[i],A[i+1],B[j],B[j+1],tol))return true;
+  return false;
+}
+function streetGroups(chains){
+  const parent=chains.map((_,i)=>i),find=i=>parent[i]===i?i:(parent[i]=find(parent[i]));
+  const join=(a,b)=>{a=find(a);b=find(b);if(a!==b)parent[b]=a};
+  // Una componente esiste solo se gli assi si toccano davvero. Il vecchio
+  // bucket da 12 px univa anche strade parallele separate da un isolato. Qui
+  // l'indice spaziale propone soltanto segmenti candidati; l'unione resta una
+  // verifica geometrica esatta entro 1.25 px.
+  const buckets=new Map(),cell=28,tol=1.25;
+  chains.forEach((c,i)=>{
+    for(let k=0;k<c.pts.length-1;k++){
+      const a=c.pts[k],b=c.pts[k+1],keys=[];
+      const x0=Math.floor((Math.min(a[0],b[0])-tol)/cell),x1=Math.floor((Math.max(a[0],b[0])+tol)/cell);
+      const y0=Math.floor((Math.min(a[1],b[1])-tol)/cell),y1=Math.floor((Math.max(a[1],b[1])+tol)/cell);
+      const candidates=new Map();
+      for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
+        const key=x+','+y;keys.push(key);
+        for(const s of (buckets.get(key)||[]))if(s.i!==i)candidates.set(s.id,s);
+      }
+      for(const s of candidates.values())if(roadSegmentsTouch(a,b,s.a,s.b,tol))join(i,s.i);
+      const seg={i,a,b,id:i+':'+k};
+      for(const key of keys){const list=buckets.get(key)||[];list.push(seg);buckets.set(key,list)}
+    }
+  });
+  const groups=new Map();
+  chains.forEach((_,i)=>{const r=find(i),g=groups.get(r)||[];g.push(i);groups.set(r,g)});
+  return [...groups.values()];
+}
+function repairStreetNetwork(chains,F,WF,places,bridges,terr,cityLoops=[]){
+  let kept=chains.map(c=>({...c,pts:c.pts.slice()}));
+  const repairStats={};
+  const extensionAlignment=(c,end,q)=>{
+    if(c.pts.length<2)return 1;
+    const p=end?c.pts[c.pts.length-1]:c.pts[0];
+    const inside=end?c.pts[c.pts.length-2]:c.pts[1];
+    const ax=p[0]-inside[0],ay=p[1]-inside[1],bx=q[0]-p[0],by=q[1]-p[1];
+    return (ax*bx+ay*by)/((Math.hypot(ax,ay)*Math.hypot(bx,by))||1);
+  };
+  const snapEndpoints=(roads,maxGap=14)=>{
+    let changed=false;
+    roads.forEach((c,i)=>{
+      for(const end of [0,1]){
+        const p=end?c.pts[c.pts.length-1]:c.pts[0];
+        let nearest=null;
+        roads.forEach((o,j)=>{
+          if(j===i)return;
+          const q=nearestPointOnPolyline(p,o.pts);
+          if(!q||q.d>maxGap||!roadSegmentClear(p,q.q,WF,bridges,terr))return;
+          if(q.d>2.5&&extensionAlignment(c,end,q.q)<-.10)return;
+          if(!nearest||q.d<nearest.d)nearest={...q,j};
+        });
+        if(!nearest)continue;
+        if(nearest.d>.05){if(end)c.pts.push(nearest.q);else c.pts.unshift(nearest.q)}
+        else if(end)c.pts[c.pts.length-1]=nearest.q;else c.pts[0]=nearest.q;
+        changed=true;
+      }
+    });
+    return changed;
+  };
+  // Il campionamento del bordo urbano puo' lasciare 15-25 px fra il taglio di
+  // un isolato e la via madre. Il controllo di allineamento e di terreno
+  // permette di chiudere questi incroci senza attraversare acqua o rilievi.
+  snapEndpoints(kept,28);
+  for(let pass=0;pass<3;pass++){
+    const remove=new Set();
+    kept.forEach((c,i)=>{
+      if(c.structural||c.rank==='quay')return;
+      for(const end of [0,1]){
+        const p=end?c.pts[c.pts.length-1]:c.pts[0];
+        const linked=kept.some((o,j)=>j!==i&&pointPolylineDist(p,o.pts)<1.25);
+        const bridge=bridges.some(b=>dist(p,b.a)<22||dist(p,b.b)<22);
+        // Al margine anche una via minore puo' terminare come accesso agricolo
+        // o cul-de-sac. Forzarla sulla strada vicina produceva i falsi anelli
+        // e i raccordi a uncino che facevano "tornare indietro" la rete.
+        const exit=fieldAt(F,p[0],p[1])<THR+.05;
+        if(linked||bridge||exit)continue;
+        let nearest=null;
+        kept.forEach((o,j)=>{if(j===i)return;const q=nearestPointOnPolyline(p,o.pts);if(q&&(!nearest||q.d<nearest.d))nearest=q});
+        const clear=nearest&&nearest.d<52&&extensionAlignment(c,end,nearest.q)>.10
+          &&roadSegmentClear(p,nearest.q,WF,bridges,terr);
+        if(!clear){remove.add(i);break}
+        if(end)c.pts.push(nearest.q);else c.pts.unshift(nearest.q);
+      }
+    });
+    kept=kept.filter((_,i)=>!remove.has(i));
+    snapEndpoints(kept,22);
+    if(!remove.size)break;
+  }
+  // Dopo gli snap conosco le vere componenti. Riassegno qui la dorsale alla
+  // rete dominante di ogni nucleo; sceglierla prima poteva proteggere un
+  // frammento periferico e far potare l'intera maglia cittadina.
+  {
+    const motor=kept.filter(c=>c.rank!=='quay'),groups=streetGroups(motor);
+    for(const c of motor)if(c.routeType==='urban-axis'){
+      c.structural=false;c.routeType=undefined;
+    }
+    const loops=cityLoops.length?cityLoops:[null];
+    for(const loop of loops){
+      const candidates=groups.map(group=>{
+        const inside=loop?group.filter(i=>inPoly(motor[i].pts[(motor[i].pts.length/2)|0],loop)):group;
+        return {group:inside,length:inside.reduce((sum,i)=>sum+polyLen(motor[i].pts),0)};
+      }).filter(x=>x.group.length).sort((a,b)=>b.length-a.length);
+      if(!candidates.length)continue;
+      const road=candidates[0].group.slice().sort((a,b)=>polyLen(motor[b].pts)-polyLen(motor[a].pts))[0];
+      motor[road].structural=true;motor[road].routeType='urban-axis';
+      if(motor[road].rank==='lane'||motor[road].rank==='minor')motor[road].rank='street';
+    }
+  }
+  // Prima dei raccordi elimino i residui minimi del clipping. Collegare ogni
+  // spezzone di poche decine di metri era la causa diretta delle diagonali
+  // sovrapposte; ponti e dorsali restano sempre protetti.
+  {
+    const motor=kept.filter(c=>c.rank!=='quay'),groups=streetGroups(motor);
+    const lengths=groups.map(g=>g.reduce((sum,i)=>sum+polyLen(motor[i].pts),0));
+    repairStats.groupsBefore=groups.length;
+    repairStats.lengthsBefore=lengths.map(Math.round).sort((a,b)=>b-a);
+    const longest=Math.max(0,...lengths),discard=new Set();
+    groups.forEach((group,g)=>{
+      const protectedGroup=group.some(i=>motor[i].structural||motor[i].routeType==='bridge');
+      if(!protectedGroup&&lengths[g]<Math.max(95,longest*.07))group.forEach(i=>discard.add(motor[i]));
+    });
+    if(discard.size)kept=kept.filter(c=>!discard.has(c));
+  }
+  // Fondo fisicamente le componenti: anche due rami primari devono avere un
+  // raccordo disegnato, non soltanto condividere l'etichetta "strutturale".
+  // Pochi raccordi possono chiudere una maglia; oltre questa soglia si sta
+  // mascherando una frammentazione con strade inventate e sovrapposte.
+  for(let pass=0;pass<7;pass++){
+    const motor=kept.filter(c=>c.rank!=='quay'),groups=streetGroups(motor);
+    if(groups.length<=1)break;
+    // La componente di riferimento e' quella della dorsale, non
+    // necessariamente quella con piu' micro-segmenti.
+    groups.sort((a,b)=>{
+      const as=a.some(i=>motor[i].structural),bs=b.some(i=>motor[i].structural);
+      return Number(bs)-Number(as)||b.length-a.length;
+    });
+    const main=new Set(groups[0]),options=[];
+    for(let g=1;g<groups.length;g++)for(const i of groups[g]){
+      let best=null;
+      for(const p of densify(motor[i].pts,18))for(const j of main){
+        const q=nearestPointOnPolyline(p,motor[j].pts);
+        if(q&&(!best||q.d<best.d))best={p,q:q.q,d:q.d};
+      }
+      if(best)options.push(best);
+    }
+    options.sort((a,b)=>a.d-b.d);let chosen=null,pts=null;
+    for(const o of options.slice(0,24)){
+      const candidate=directRoad(o.p,o.q,WF,bridges,terr)
+        ||routeRoad(o.p,o.q,F,WF,bridges,terr,new Set());
+      if(!candidate)continue;
+      // Un raccordo valido deve fondere davvero due componenti. La sola
+      // percorribilita' geometrica non basta e in passato lasciava linee
+      // diagonali inutili sovrapposte al tessuto.
+      if(streetGroups(motor.concat([{pts:candidate}])).length>=groups.length)continue;
+      pts=candidate;chosen=o;break;
+    }
+    if(!pts)break;
+    // Il raccordo e' parte della rete soltanto se tocca davvero la dorsale.
+    // Non lo marco come strutturale: cosi' un tentativo fallito non protegge
+    // dal pruning un'intera componente isolata.
+    kept.push({pts,rank:chosen.d>2*CELL?'street':'minor',structural:false,routeType:'connector'});
+    snapEndpoints(kept);
+  }
+  // Elimino maglie locali chiuse che non raggiungono alcuna arteria: sono
+  // tessuto decorativo privo di accesso, tipico delle strettoie fra piu' corsi.
+  const motorFinal=kept.filter(c=>c.rank!=='quay'),groupsFinal=streetGroups(motorFinal),detached=new Set();
+  for(const group of groupsFinal)if(!group.some(i=>motorFinal[i].structural))group.forEach(i=>detached.add(motorFinal[i]));
+  if(detached.size)kept=kept.filter(c=>!detached.has(c));
+  snapEndpoints(kept,2.5);
+  repairStats.groupsAfter=streetGroups(kept.filter(c=>c.rank!=='quay')).length;
+  repairStats.detachedRemoved=detached.size;
+  kept.repairStats=repairStats;
+  return kept;
+}
+
+function mapDiagnostics(chains,bridges,rail,F,WF,places,rivers,cityLoops,blocks=[],plazas=[]){
+  const bridgeAt=p=>bridges.some(b=>distSeg(p,b.a,b.b)<24);
+  const routeCounts={};
+  for(const c of chains){const k=c.routeType||('local-depth-'+(c.depth??'x'));routeCounts[k]=(routeCounts[k]||0)+1}
+  let roadWaterViolations=0;const roadWaterByRank={},roadWaterDetails=[];
+  for(const c of chains){
+    if(c.rank==='quay')continue;
+    const wet=densify(c.pts,3).find(p=>fieldAt(WF,p[0],p[1])>WTHR&&!bridgeAt(p));
+    if(wet){
+      const k=c.rank+(c.structural?':primary:'+c.routeType:'');
+      roadWaterViolations++;roadWaterByRank[k]=(roadWaterByRank[k]||0)+1;
+      const bd=bridges.reduce((v,b)=>Math.min(v,distSeg(wet,b.a,b.b)),Infinity);
+      roadWaterDetails.push({rank:k,x:Math.round(wet[0]),y:Math.round(wet[1]),water:+fieldAt(WF,wet[0],wet[1]).toFixed(2),bridgeDistance:Math.round(bd)});
+    }
+  }
+  const motor=chains.filter(c=>c.rank!=='quay');
+  let placeAccessFailures=0;const placeAccessDetails=[];
+  for(const p of places){
+    const d=motor.reduce((best,c)=>Math.min(best,pointPolylineDist([p.x,p.y],c.pts)),Infinity);
+    if(d>24){
+      let sameBank=Infinity;
+      for(const c of motor){
+        const q=nearestPointOnPolyline([p.x,p.y],c.pts);
+        if(q&&densify([[p.x,p.y],q.q],4).every(v=>fieldAt(WF,v[0],v[1])<WTHR-.04))sameBank=Math.min(sameBank,q.d);
+      }
+      placeAccessFailures++;
+      placeAccessDetails.push({name:p.name,distance:Math.round(d),sameBankDistance:Number.isFinite(sameBank)?Math.round(sameBank):null});
+    }
+  }
+
+  const roadComponents=streetGroups(motor).length;
+  const regional= motor.filter(c=>c.structural);
+  const regionalComponents=regional.length?streetGroups(regional).length:0;
+
+  let deadEnds=0;
+  chains.forEach((c,i)=>{
+    if(c.rank==='quay')return;
+    for(const p of [c.pts[0],c.pts[c.pts.length-1]]){
+      const linked=chains.some((o,j)=>j!==i&&pointPolylineDist(p,o.pts)<9);
+      const regional=fieldAt(F,p[0],p[1])<THR+.07||p[0]<28||p[0]>MAPW-28||p[1]<28||p[1]>MAPW-28;
+      if(!linked&&!regional&&!bridgeAt(p))deadEnds++;
+    }
+  });
+
+  let riverDangling=0;
+  rivers.forEach((rv,i)=>{
+    for(const p of [rv.pts[0],rv.pts[rv.pts.length-1]]){
+      const outside=p[0]<1||p[0]>MAPW-1||p[1]<1||p[1]>MAPW-1;
+      const joined=rivers.some((o,j)=>j!==i&&pointPolylineDist(p,o.pts)<18);
+      if(!outside&&!joined)riverDangling++;
+    }
+  });
+  const railCrossings=rail?(rail.waterBridges||[]).length:0;
+  let railUnbridged=0;
+  if(rail){
+    const full=rail.a.slice().reverse().concat(rail.b.slice(1));
+    const covered=p=>(rail.waterBridges||[]).some(run=>pointPolylineDist(p,run)<7);
+    if(densify(full,4).some(p=>fieldAt(WF,p[0],p[1])>WTHR-.03&&!covered(p)))railUnbridged=1;
+  }
+  const roadSamples=[];
+  for(const c of motor)roadSamples.push(...densify(c.pts,5));
+  let blockRoadViolations=0;
+  for(const b of blocks){
+    const xs=b.poly.map(p=>p[0]),ys=b.poly.map(p=>p[1]);
+    const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+    if(roadSamples.some(p=>p[0]>=x0&&p[0]<=x1&&p[1]>=y0&&p[1]<=y1&&inPoly(p,b.poly)))blockRoadViolations++;
+  }
+  let plazaBlockViolations=0,plazaAccessFailures=0;
+  for(const plaza of plazas){
+    if(blocks.some(b=>inPoly(b.c,plaza.poly)||inPoly([plaza.x,plaza.y],b.poly)||b.poly.some(p=>inPoly(p,plaza.poly))))plazaBlockViolations++;
+    const accesses=motor.reduce((n,c)=>n+(pointPolylineDist([plaza.x,plaza.y],c.pts)<Math.max(plaza.rx,plaza.ry)+18?1:0),0);
+    if(accesses<2)plazaAccessFailures++;
+  }
+  return {places:places.length,streets:chains.length,routeCounts,repairStats:chains.repairStats||{},roadComponents,regionalComponents,deadEnds,roadWaterViolations,roadWaterByRank,roadWaterDetails,
+    placeAccessFailures,placeAccessDetails,riverDangling,railCrossings,railUnbridged,
+    blocks:blocks.length,plazas:plazas.length,blockRoadViolations,plazaBlockViolations,plazaAccessFailures,
+    urbanComponents:cityLoops.length};
 }
 
 /* ---------------- helper geometrici ---------------- */
@@ -1323,29 +2136,52 @@ function nearestOn(poly,p){
   for(const q of poly){const d=dist(q,p);if(!b||d<b.d)b={q,d}}
   return b.q;
 }
+function nearestOnLand(poly,p,WF){
+  let best=null;
+  for(const q of densify(poly.concat([poly[0]]),5)){
+    if(fieldAt(WF,q[0],q[1])>WTHR-.04)continue;
+    const d=dist(q,p);if(!best||d<best.d)best={q,d};
+  }
+  return best?best.q:null;
+}
 
-function makeRail(places,centre){
+function makeRail(places,centre,F,WF,bridges,terr){
   const st=places.filter(p=>p.cat==='stazione');
   if(!st.length)return null;
   const s=st[0];
-  const a=Math.atan2(s.y-centre[1],s.x-centre[0]);
-  const pts=[[s.x,s.y]];
-  let x=s.x,y=s.y,ang=a;
-  for(let i=0;i<80;i++){
-    ang+=rr(-.03,.03);
-    x+=Math.cos(ang)*14;y+=Math.sin(ang)*14;
-    if(x<0||x>MAPW||y<0||y>MAPW)break;
-    pts.push([x,y]);
+  const edgePoint=ang=>{
+    const ux=Math.cos(ang),uy=Math.sin(ang),ts=[];
+    if(ux>0)ts.push((MAPW-22-s.x)/ux);else if(ux<0)ts.push((22-s.x)/ux);
+    if(uy>0)ts.push((MAPW-22-s.y)/uy);else if(uy<0)ts.push((22-s.y)/uy);
+    const t=Math.min(...ts.filter(v=>v>0));return [s.x+ux*t,s.y+uy*t];
+  };
+  const base=Math.atan2(s.y-centre[1],s.x-centre[0])+Math.PI/2;
+  const mountains=(terr.mountain||[]).map(([r,c])=>[W(c+.5),W(r+.5)]);
+  let best=null;
+  for(let k=0;k<18;k++){
+    const a=base-Math.PI/2+k*Math.PI/17,A=edgePoint(a),B=edgePoint(a+Math.PI);
+    const pts=densify([A,[s.x,s.y],B],7);let score=0,run=0,maxRun=0;
+    for(const p of pts){
+      if(fieldAt(WF,p[0],p[1])>WTHR-.03){run+=7;maxRun=Math.max(maxRun,run);score+=1}else run=0;
+      for(const m of mountains){const d=dist(p,m);if(d<CELL*.72)score+=12*(1-d/(CELL*.72))}
+    }
+    score+=Math.max(0,maxRun-48)*4;
+    if(!best||score<best.score)best={a,A,B,score};
   }
-  // secondo ramo, dall'altra parte
-  const pts2=[[s.x,s.y]];x=s.x;y=s.y;ang=a+Math.PI+rr(-.5,.5);
-  for(let i=0;i<80;i++){
-    ang+=rr(-.04,.04);
-    x+=Math.cos(ang)*14;y+=Math.sin(ang)*14;
-    if(x<0||x>MAPW||y<0||y>MAPW)break;
-    pts2.push([x,y]);
+  if(!best)return null;
+  const one=[[s.x,s.y],best.A],two=[[s.x,s.y],best.B];
+  const all=one.slice().reverse().concat(two.slice(1));
+  return {a:one,b:two,station:s,waterBridges:waterRunsOnPath(all,WF)};
+}
+function waterRunsOnPath(pts,WF){
+  const dense=densify(pts,4),runs=[];let run=[];
+  for(let i=0;i<dense.length;i++){
+    const p=dense[i],wet=fieldAt(WF,p[0],p[1])>WTHR-.04;
+    if(wet){if(!run.length&&i)run.push(dense[i-1]);run.push(p)}
+    else if(run.length){run.push(p);if(polyLen(run)>8)runs.push(run);run=[]}
   }
-  return {a:pts,b:pts2,station:s};
+  if(run.length&&polyLen(run)>8)runs.push(run);
+  return runs;
 }
 function makeDock(p,WF){
   // cerca la direzione dell'acqua piu' vicina
@@ -1421,11 +2257,11 @@ function makeFarms(F,WF,parks,villages){
   }
   return out;
 }
-function makeSuburbs(F,centre){
+function makeSuburbs(F,centre,WF){
   const S=[];
   for(let k=0;k<400&&S.length<11;k++){
     const x=rr(50,MAPW-50), y=rr(50,MAPW-50);
-    if(fieldAt(F,x,y)>THR*.32)continue;
+    if(fieldAt(F,x,y)>THR*.32||fieldAt(WF,x,y)>WTHR-.08)continue;
     if(dist([x,y],centre)<3.2*CELL)continue;
     if(S.some(s=>dist([s.x,s.y],[x,y])<150))continue;
     S.push({x,y,name:suburbName()});
@@ -1458,6 +2294,64 @@ const esc=s=>String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[
 const F1=n=>n.toFixed(1);
 
 const RANKW={belt:4.4, blvd:5.0, quay:3.2, street:3.2, minor:2.3, lane:1.6, bridge:5.5};
+const scalePoly=(poly,c,s)=>poly.map(p=>[c[0]+(p[0]-c[0])*s,c[1]+(p[1]-c[1])*s]);
+function urbanFabricLayer(blocks,parks,P){
+  let s='<g stroke-linejoin="round">';
+  const reserved=b=>parks.some(p=>p.kind!=='bosco'&&inPoly(b.c,p.poly));
+  const corners=(x,y,ux,uy,w,h)=>{
+    const vx=-uy,vy=ux;
+    return [[x-ux*w-vx*h,y-uy*w-vy*h],[x+ux*w-vx*h,y+uy*w-vy*h],
+            [x+ux*w+vx*h,y+uy*w+vy*h],[x-ux*w+vx*h,y-uy*w+vy*h]];
+  };
+  for(const b of blocks){
+    if(b.A<260||reserved(b))continue;
+    const inset=b.final?clamp(1-2.2/Math.sqrt(b.A),.92,.985):clamp(1-5.2/Math.sqrt(b.A),.84,.95);
+    // Fra due corsi d'acqua il tessuto e' compatto: una sola quinta edilizia
+    // per isolato finale. Il vecchio mosaico di case sparse, ciascuna con un
+    // asse diverso, produceva l'impressione di edifici accatastati.
+    if(b.riverPressure>1){
+      const outer=scalePoly(b.poly,b.c,inset*.96);
+      if(b.A>2500){
+        const inner=scalePoly(b.poly,b.c,rr(.34,.46));
+        s+=`<path d="${dPoly(outer,1)} ${dPoly(inner,1)}" fill="${P.built}" fill-rule="evenodd" stroke="${P.builtLn}" stroke-width=".55"/>`;
+      }else s+=`<path d="${dPoly(outer,1)}" fill="${P.built}" stroke="${P.builtLn}" stroke-width=".5"/>`;
+      continue;
+    }
+    if(b.u<.24&&b.riverPressure<=1){
+      const outer=scalePoly(b.poly,b.c,inset);
+      if(b.A>2100&&RND()<.72){
+        const inner=scalePoly(b.poly,b.c,rr(.30,.46));
+        s+=`<path d="${dPoly(outer,1)} ${dPoly(inner,1)}" fill="${P.built}" fill-rule="evenodd" stroke="${P.builtLn}" stroke-width=".65"/>`;
+      }else s+=`<path d="${dPoly(outer,1)}" fill="${P.built}" stroke="${P.builtLn}" stroke-width=".65"/>`;
+      continue;
+    }
+    if(b.u<.70&&b.riverPressure<=1){
+      const outer=scalePoly(b.poly,b.c,inset*.97);
+      const compact=axisOf(b.poly).len**2<b.A*6.5;
+      if(compact&&b.A>2900&&RND()<.48){
+        const inner=scalePoly(b.poly,b.c,rr(.32,.43));
+        s+=`<path d="${dPoly(outer,1)} ${dPoly(inner,1)}" fill="${P.built}" fill-rule="evenodd" stroke="${P.builtLn}" stroke-width=".55"/>`;
+      }else s+=`<path d="${dPoly(outer,1)}" fill="${P.built}" stroke="${P.builtLn}" stroke-width=".5" opacity=".92"/>`;
+      continue;
+    }
+    // Margine urbano: edifici separati, allineati all'asse dell'isolato.
+    const ax=axisOf(b.poly).ax,uy=ax[1],ux=ax[0],seen=[];
+    let minU=Infinity,maxU=-Infinity,minV=Infinity,maxV=-Infinity;
+    for(const p of b.poly){
+      const dx=p[0]-b.c[0],dy=p[1]-b.c[1],a=dx*ux+dy*uy,v=-dx*uy+dy*ux;
+      minU=Math.min(minU,a);maxU=Math.max(maxU,a);minV=Math.min(minV,v);maxV=Math.max(maxV,v);
+    }
+    const stepU=rr(22,30),stepV=rr(18,25),limit=clamp(Math.round(b.A/520),2,12);
+    for(let v=minV+stepV*.55;v<maxV&&seen.length<limit;v+=stepV)
+      for(let a=minU+stepU*.55;a<maxU&&seen.length<limit;a+=stepU){
+        if(RND()<.18)continue;
+        const x=b.c[0]+ux*a-uy*v,y=b.c[1]+uy*a+ux*v;
+        const w=stepU*rr(.27,.38),h=stepV*rr(.22,.34),poly=corners(x,y,ux,uy,w,h);
+        if(poly.every(q=>inPoly(q,b.poly))){seen.push(poly);s+=`<path d="${dPoly(poly,1)}" fill="${P.built}" stroke="${P.builtLn}" stroke-width=".45"/>`}
+      }
+  }
+  return s+'</g>';
+}
 function streetsLayer(chains,P){
   let s='<g stroke-linecap="round" stroke-linejoin="round" fill="none">';
   // solo i corsi hanno un filo d'ombra: l'alone sotto TUTTE le arterie
@@ -1470,6 +2364,16 @@ function streetsLayer(chains,P){
     const w=RANKW[c.rank]||2;
     const col=(c.rank==='blvd'||c.rank==='belt')?P.major:P.street;
     s+=`<path d="${dPoly(c.pts,0)}" stroke="${col}" stroke-width="${w}"/>`;
+  }
+  return s+'</g>';
+}
+function plazasLayer(plazas,P){
+  let s='<g>';
+  for(const plaza of plazas){
+    const inner=scalePoly(plaza.poly,[plaza.x,plaza.y],.82);
+    s+=`<path d="${dPoly(plaza.poly,1)}" fill="${P.paper}" stroke="${P.builtLn}" stroke-width=".8"/>`;
+    s+=`<path d="${dPoly(inner,1)}" fill="none" stroke="${P.builtLn}" stroke-width=".45" opacity=".42" stroke-dasharray="1.5 3"/>`;
+    s+=`<circle cx="${F1(plaza.x)}" cy="${F1(plaza.y)}" r="2.2" fill="${P.red}" opacity=".75"/>`;
   }
   return s+'</g>';
 }
@@ -1589,9 +2493,16 @@ function parksLayer(parks,P){
 }
 function waterLayer(loops,rivers,comps,P,docks){
   let s='';
-  const all=loops.map(l=>dPoly(l,1));
-  for(const rv of rivers)all.push(dPoly(rv.poly,1));   // fiume: poligono esatto
-  s+=`<g fill-rule="evenodd"><path d="${all.join(' ')}" fill="url(#onde)" stroke="${P.waterLn}" stroke-width="1.5"/></g>`;
+  const waters=loops.concat(rivers.map(rv=>rv.poly));
+  // Ogni massa ha un riempimento autonomo: un path composto puo' sottrarre
+  // poligoni con orientamento opposto e mostrare il terreno alla confluenza.
+  for(const poly of waters)s+=`<path d="${dPoly(poly,1)}" fill="url(#onde)" stroke="none"/>`;
+  for(const poly of waters)s+=`<path d="${dPoly(poly,1)}" fill="none" stroke="${P.waterLn}" stroke-width="1.5"/>`;
+  // Il terminale dell'affluente copre anche i bordi interni della giunzione.
+  for(const rv of rivers.filter(r=>r.tributary)){
+    const p=rv.pts[rv.pts.length-1],r=(rv.hw[rv.hw.length-1]||9)+3;
+    s+=`<circle cx="${F1(p[0])}" cy="${F1(p[1])}" r="${F1(r)}" fill="url(#onde)"/>`;
+  }
   for(const l of loops)s+=`<path d="${dPoly(l,1)}" fill="none" stroke="${P.waterLn}" stroke-width=".8" opacity=".45" stroke-dasharray="1 3" transform="translate(0,2)"/>`;
   // moli
   for(const d of docks){
@@ -1622,16 +2533,26 @@ function bridgesLayer(B,P){
 }
 function railLayer(R,P){
   let s='';
+  for(const pts of (R.waterBridges||[])){
+    s+=`<path d="${dPoly(pts,0)}" fill="none" stroke="${P.ink}" stroke-width="7" stroke-linecap="butt"/>`;
+    s+=`<path d="${dPoly(pts,0)}" fill="none" stroke="${P.paper}" stroke-width="4.4" stroke-linecap="butt"/>`;
+  }
   for(const pts of [R.a,R.b]){
     s+=`<path d="${dPoly(pts,0)}" fill="none" stroke="${P.rail}" stroke-width="1.4" opacity=".75"/>`;
     s+=`<path d="${dPoly(pts,0)}" fill="none" stroke="${P.rail}" stroke-width="3.6" stroke-dasharray="1 8" opacity=".7"/>`;
   }
   return s;
 }
-function wallsLayer(city,gates,P,places){
+function wallsLayer(city,gates,P,places,WF){
   if(!city||!city.length)return '';
   const walled=true;
-  let s=`<path d="${dPoly(city,1)}" fill="none" stroke="${P.ink}" stroke-width="2.4" opacity=".9"/>`;
+  const wallRuns=[];let run=[];
+  for(const p of densify(city.concat([city[0]]),5)){
+    if(fieldAt(WF,p[0],p[1])>WTHR-.04){if(run.length>1)wallRuns.push(run);run=[]}
+    else run.push(p);
+  }
+  if(run.length>1)wallRuns.push(run);
+  let s=wallRuns.map(seg=>`<path d="${dPoly(seg,0)}" fill="none" stroke="${P.ink}" stroke-width="2.4" opacity=".9"/>`).join('');
   if(walled){
     // torri a intervalli regolari lungo la cinta
     let acc=0;
@@ -1640,6 +2561,7 @@ function wallsLayer(city,gates,P,places){
       const L=dist(a,b); acc+=L;
       if(acc<52)continue;
       acc=0;
+      if(fieldAt(WF,a[0],a[1])>WTHR-.04)continue;
       const ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
       s+=`<rect x="${F1(a[0]-3)}" y="${F1(a[1]-3)}" width="6" height="6" fill="${P.paper}"
             stroke="${P.ink}" stroke-width="1.1" transform="rotate(${F1(ang)} ${F1(a[0])} ${F1(a[1])})"/>`;
@@ -1669,6 +2591,14 @@ function fillersLayer(F,P){
 function landmarksLayer(places,P){
   let s='';
   for(const p of places){
+    if(p.cat==='piazza'&&p.plaza){
+      // La piazza e' gia' visibile come spazio urbano. Qui resta soltanto il
+      // riferimento dell'itinerario, appoggiato al bordo e non al centro.
+      s+=`<g transform="translate(${F1(p.x)},${F1(p.y)}) scale(.48)" stroke="${P.redDk}" fill="none" stroke-width="2.2">${ICON.square}</g>`;
+      s+=`<circle cx="${F1(p.markerX)}" cy="${F1(p.markerY)}" r="8" fill="${P.paper}" stroke="${P.redDk}" stroke-width="1.3"/>`;
+      s+=`<text x="${F1(p.markerX)}" y="${F1(p.markerY+3)}" font-size="10" text-anchor="middle" fill="${P.redDk}" font-family="system-ui,sans-serif" font-weight="700">${p.ord}</text>`;
+      continue;
+    }
     // impronta di edificio rossa (come i monumenti sulla carta di Parigi)
     const w=rr(15,22),h=rr(13,19),a=rr(-14,14);
     s+=`<g transform="translate(${F1(p.x)},${F1(p.y)}) rotate(${F1(a)})">
@@ -1744,7 +2674,8 @@ function parkNames(parks,P){
 function landmarkNames(places,P){
   let s='';
   for(const p of places){
-    s+=`<text x="${F1(p.x)}" y="${F1(p.y+24)}" font-size="10" text-anchor="middle" fill="${P.redDk}"
+    const y=p.plaza?p.y+p.plaza.ry+15:p.y+24;
+    s+=`<text x="${F1(p.x)}" y="${F1(y)}" font-size="10" text-anchor="middle" fill="${P.redDk}"
       font-weight="600" stroke="${P.paper}" stroke-width="2.6" paint-order="stroke">${esc(p.name)}</text>`;
   }
   return s;
@@ -1813,23 +2744,87 @@ const clip=(s,n)=>{s=String(s);return s.length>n?s.slice(0,n-1)+'…':s};
 /* =====================================================================
    REGIA
    ===================================================================== */
-let T=null;
-const scheduleGen=()=>{clearTimeout(T);T=setTimeout(generate,140)};
+const scheduleGen=()=>{
+  mapDirty=true;
+  setStatus('Configurazione aggiornata · la carta è pronta da rivelare.');
+};
 const setStatus=t=>$('status').textContent=t;
+function resetJollyInputs(){
+  jollyText=Array(NJOLLY).fill('');
+  document.querySelectorAll('#jollyLabels input').forEach(inp=>inp.value='');
+}
+function resetBoard(){
+  grid=empty();order=0;painting=false;activePointerId=null;
+  resetJollyInputs();
+  drawGrid();generate();
+}
+
+function normalizeExternalCell(v){
+  if(!v||typeof v!=='object')return null;
+  if(v.kind==='terrain'&&TERRAINS[v.terrain])return {kind:'terrain',terrain:v.terrain};
+  if(v.kind==='place'&&CAT[v.cat])return {kind:'place',cat:v.cat,ord:+v.ord||0};
+  if(v.kind==='jolly'&&Number.isInteger(+v.j)&&+v.j>=0&&+v.j<NJOLLY)return {kind:'jolly',j:+v.j,ord:+v.ord||0};
+  return null;
+}
+
+function setGridFromExternal(next,source='scanner'){
+  if(!Array.isArray(next)||next.length!==N)return false;
+  const clean=empty();
+  let maxOrd=0, seen=0;
+  for(let r=0;r<N;r++){
+    if(!Array.isArray(next[r])||next[r].length!==N)return false;
+    for(let c=0;c<N;c++){
+      const v=normalizeExternalCell(next[r][c]);
+      if(!v)continue;
+      clean[r][c]=v;
+      if(v.kind==='place'||v.kind==='jolly'){
+        seen++;
+        if(!v.ord)v.ord=seen;
+        maxOrd=Math.max(maxOrd,v.ord);
+      }
+    }
+  }
+  grid=clean;order=maxOrd;renumberOrder();drawGrid();scheduleGen();
+  setStatus('Scacchiera aggiornata da '+source+'. Genera per rivelare la carta.');
+  return true;
+}
+
+function receiveExternalGrid(payload,source){
+  if(payload&&payload.grid)setGridFromExternal(payload.grid,source||payload.source||'scanner');
+}
+
+function setupExternalGridBridge(){
+  window.ASMA={setGridFromExternal,receiveExternalGrid,getGrid:()=>grid};
+  try{
+    externalGridChannel=new BroadcastChannel(EXTERNAL_GRID_CHANNEL);
+    externalGridChannel.onmessage=e=>receiveExternalGrid(e.data,'scanner');
+  }catch(e){}
+  window.addEventListener('storage',e=>{
+    if(e.key!==EXTERNAL_GRID_KEY||!e.newValue)return;
+    try{receiveExternalGrid(JSON.parse(e.newValue),'scanner')}catch(err){}
+  });
+  try{
+    const saved=localStorage.getItem(EXTERNAL_GRID_KEY);
+    if(saved)receiveExternalGrid(JSON.parse(saved),'scanner salvato');
+  }catch(e){}
+}
 
 $('btnGen').onclick=()=>{setStatus('Il cartografo consulta l\'atlante…');setTimeout(generate,260)};
-$('btnClear').onclick=()=>{grid=empty();order=0;drawGrid();generate()};
+$('btnClear').onclick=resetBoard;
 $('btnPrint').onclick=()=>window.print();
 $('btnExport').onclick=()=>{
-  if(!lastSVG)generate();
+  if(mapDirty||!lastSVG)generate();
   const b=new Blob([lastSVG],{type:'image/svg+xml'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='carta-immaginaria.svg';a.click();
+  const a=document.createElement('a');
+  const url=URL.createObjectURL(b);
+  a.href=url;a.download='carta-immaginaria.svg';a.click();
+  setTimeout(()=>URL.revokeObjectURL&&URL.revokeObjectURL(url),0);
 };
 $('character').onchange=generate;
 $('btnDemo').onclick=demo;
 
 function demo(){
-  grid=empty();order=0;
+  grid=empty();order=0;resetJollyInputs();
   const put=(r,c,v)=>grid[r][c]=v;
   // fiume che attraversa da bordo a bordo (diagonale = 8-connessione) + rilievi a ovest
   [[0,2],[1,2],[2,3],[3,3],[4,4],[5,4],[6,5],[7,5]].forEach(([r,c])=>put(r,c,{kind:'terrain',terrain:'water'}));
@@ -1846,6 +2841,7 @@ function demo(){
 buildConsole();buildGrid();
 $('catSelect').style.outline='2px solid var(--accent)';
 demo();
+setupExternalGridBridge();
 </script>
 </body>
 </html>
