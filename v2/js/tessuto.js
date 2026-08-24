@@ -24,8 +24,9 @@ const MIN_BUILDING_DRAW=180;
 const RECT_ACCEPT=.34;
 const RAIL_HW=3.5;
 const LANDMARK_FILL={chiesa:'#8e4a6b',municipio:'#c9967a',mercato:'#b5893f',teatro:'#5a7a92',osteria:'#9c6b3a',bottega:'#7c8a52',
-  monumento:'#8a7a8a',torre:'#6b5a44',stazione:'#5a6b8a',porto:'#4a7a8a',biblioteca:'#4a6b82',fontana:'#6f9ab5',locale:'#9c6b8a'};
-const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',teatro:'apse'};
+  monumento:'#8a7a8a',torre:'#6b5a44',stazione:'#5a6b8a',porto:'#4a7a8a',biblioteca:'#4a6b82',fontana:'#6f9ab5',locale:'#9c6b8a',
+  ospedale:'#a85454'};
+const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',teatro:'apse',stazione:'shed',fontana:'basin',ospedale:'courtyard'};
 
 /* ---------------- forme organiche (piazze/giardini/verde) ----------------
    rifinitura cosmetica per i due soli casi in cui non si puo' ritagliare un
@@ -105,19 +106,43 @@ function apseShape(c,dirVec,nVec,halfA,halfN,steps){
 function landmarkFootprint(poly,cat){
   const{c,dirVec,nVec,maxA,maxN}=orientedExtent(poly);
   const kind=IMPORTANT_SHAPE[cat];
-  if(!kind)return[{poly:scalePoly(poly,c,.8),hole:null}];
-  if(kind==='courtyard'){
-    const outer=rectAt(c,dirVec,nVec,maxA*.74,maxN*.7);
-    const inner=rectAt(c,dirVec,nVec,maxA*.42,maxN*.38);
-    return[{poly:outer,hole:inner}];
+  let parts;
+  if(!kind)parts=[{poly:scalePoly(poly,c,.8),hole:null}];
+  else if(kind==='courtyard'){
+    // cortile grande (municipio/mercato/ospedale): un vero palazzo con
+    // chiostro, non una scatola — occupa quasi tutto il lotto orientato.
+    const outer=rectAt(c,dirVec,nVec,maxA*.86,maxN*.82);
+    const inner=rectAt(c,dirVec,nVec,maxA*.48,maxN*.44);
+    parts=[{poly:outer,hole:inner}];
   }
-  if(kind==='cross'){
-    const nave=rectAt(c,dirVec,nVec,maxA*.76,maxN*.32);
-    const transept=rectAt(c,dirVec,nVec,maxA*.32,maxN*.74);
-    return[{poly:nave,hole:null},{poly:transept,hole:null}];
+  else if(kind==='cross'){
+    // chiesa: navata+transetto piu' generosi, cosi' la pianta a croce si
+    // legge davvero invece di sembrare un incrocio di due strisce sottili.
+    const nave=rectAt(c,dirVec,nVec,maxA*.85,maxN*.36);
+    const transept=rectAt(c,dirVec,nVec,maxA*.36,maxN*.85);
+    parts=[{poly:nave,hole:null},{poly:transept,hole:null}];
   }
-  if(kind==='apse')return[{poly:apseShape(c,dirVec,nVec,maxA*.74,maxN*.66,10),hole:null}];
-  return[{poly:scalePoly(poly,c,.88),hole:null}];
+  else if(kind==='apse')parts=[{poly:apseShape(c,dirVec,nVec,maxA*.85,maxN*.78,10),hole:null}];
+  else if(kind==='shed'){
+    // stazione: capannone allungato con testata, come un vero scalo — non
+    // un rettangolo qualsiasi, si riconosce dalla proporzione.
+    parts=[{poly:rectAt(c,dirVec,nVec,maxA*.9,maxN*.4),hole:null},
+           {poly:rectAt(addv(c,dirVec,-maxA*.62,nVec,0),dirVec,nVec,maxA*.22,maxN*.58),hole:null}];
+  }
+  else if(kind==='basin'){
+    // fontana: una vasca ottagonale, piccola e centrata sul lotto.
+    const r=Math.min(maxA,maxN)*.55, steps=8, pts=[];
+    for(let i=0;i<steps;i++){const t=i/steps*Math.PI*2;pts.push(addv(c,dirVec,Math.cos(t)*r,nVec,Math.sin(t)*r))}
+    parts=[{poly:pts,hole:null}];
+  }
+  else parts=[{poly:scalePoly(poly,c,.88),hole:null}];
+  // le forme sopra usano l'ingombro ORIENTATO del lotto (maxA/maxN): su un
+  // lotto non rettangolare (quasi sempre, dopo un taglio di fiume o
+  // un'ancora vicina) quell'ingombro sconfina oltre i lati veri, ed e'
+  // esattamente li' che due palazzi vicini finivano sovrapposti. Stesso
+  // rimedio gia' usato per le forme organiche: ritaglio SEMPRE contro il
+  // vero perimetro del lotto prima di restituire.
+  return parts.map(p=>({poly:clipToPoly(p.poly,poly,2),hole:p.hole?clipToPoly(p.hole,poly,2):null}));
 }
 
 /* ---------------- fiume: query locale, sponde curve, taglio ---------------- */
@@ -761,12 +786,26 @@ function buildTessuto(cityPoly, river, places, railStations){
   }
 
   // i luoghi occupano l'edificio generato piu' vicino: un riferimento a un
-  // oggetto che esiste davvero nel tessuto, non un'icona indipendente.
+  // oggetto che esiste davvero nel tessuto, non un'icona indipendente. Per
+  // le categorie che meritano un palazzo importante (chiesa, municipio,
+  // mercato, teatro, stazione) si cerca un po' piu' in la' e si preferisce
+  // un lotto GIA' grande, non il piu' vicino in assoluto — altrimenti una
+  // chiesa poteva finire su un lotto minuscolo solo perche' era il primo
+  // a portata, mentre un lotto ben piu' grande stava a pochi passi in piu'.
   const claimed=new Set();
+  const BIG_LANDMARK=new Set(['chiesa','municipio','mercato','teatro','stazione']);
   for(const lp of landmarkPawns){
-    let best=-1,bd=Infinity;
-    out.buildings.forEach((b,i)=>{if(claimed.has(i)||b.landmark||b.A<MIN_BUILDING_DRAW)return;const d=dist([lp.x,lp.y],b.c);if(d<bd){bd=d;best=i}});
-    if(best>=0&&bd<CELL*1.4){
+    const prefersBig=BIG_LANDMARK.has(lp.cat);
+    const searchR=prefersBig?CELL*1.9:CELL*1.4;
+    let best=-1,bestScore=Infinity;
+    out.buildings.forEach((b,i)=>{
+      if(claimed.has(i)||b.landmark||b.A<MIN_BUILDING_DRAW)return;
+      const d=dist([lp.x,lp.y],b.c);
+      if(d>searchR)return;
+      const score=prefersBig?d-Math.sqrt(b.A)*.7:d;
+      if(score<bestScore){bestScore=score;best=i}
+    });
+    if(best>=0){
       claimed.add(best);
       const b=out.buildings[best];
       b.landmark={cat:lp.cat,name:lp.name};
@@ -815,6 +854,76 @@ function buildTessuto(cityPoly, river, places, railStations){
         shapePoly:organicBlob(b.poly,.20,rr(0,Math.PI*2),.7)});
     });
     out.buildings=out.buildings.filter((b,i)=>!claimedGarden.has(i));
+  }
+
+  // sagrato: qualche chiesa (e qualche municipio) reclama anche il lotto
+  // libero piu' vicino per farne un piccolo spiazzo davanti — piazza o
+  // giardino, come un vero sagrato o una corte d'onore. Solo una parte,
+  // non tutte: altrimenti ogni chiesa diventerebbe un piccolo complesso
+  // identico.
+  const claimedForecourt=new Set();
+  const nearbyFreeLot=(pos,maxD)=>{
+    let best=-1,bd=Infinity;
+    out.buildings.forEach((b,i)=>{
+      if(claimedForecourt.has(i)||b.landmark||b.A<200||b.A>2600)return;
+      const d=dist(pos,b.c); if(d<bd){bd=d;best=i}
+    });
+    return bd<maxD?best:-1;
+  };
+  for(const b of out.buildings){
+    if(!b.landmark)continue;
+    const wantsForecourt=b.landmark.cat==='chiesa'?RND()<.4:b.landmark.cat==='municipio'&&RND()<.25;
+    if(!wantsForecourt)continue;
+    const idx=nearbyFreeLot(b.c,CELL*1.15);
+    if(idx<0)continue;
+    claimedForecourt.add(idx);
+    const nb=out.buildings[idx];
+    const giardino=RND()<.5;
+    out.reserved.push({type:giardino?'giardino':'piazza',poly:nb.poly,name:null,
+      shapePoly:giardino?organicBlob(nb.poly,.20,rr(0,Math.PI*2),.72):null});
+  }
+  if(claimedForecourt.size)out.buildings=out.buildings.filter((b,i)=>!claimedForecourt.has(i));
+
+  // palazzi complessi sparsi: alcuni edifici comuni, a caso, prendono una
+  // pianta piu' articolata (cortile o L, ritagliata dentro il VERO lotto —
+  // mai piu' grande di lui) invece del solito rettangolo, e talvolta si
+  // affiancano un piccolo giardino, una piazzetta o una fontana nel lotto
+  // libero adiacente. Un tocco di varieta' realistica, non un evento raro
+  // quanto un vero landmark ma nemmeno la norma.
+  {
+    const claimedNeighbor=new Set();
+    const candidates=[];
+    out.buildings.forEach((b,i)=>{if(!b.landmark&&b.A>900&&b.A<4500)candidates.push(i)});
+    let budget=Math.min(6,Math.floor(out.buildings.length/140));
+    while(budget>0&&candidates.length){
+      const idx=(RND()*candidates.length)|0, i=candidates.splice(idx,1)[0];
+      if(claimedNeighbor.has(i))continue;
+      const b=out.buildings[i];
+      const{c,dirVec,nVec,maxA,maxN}=orientedExtent(b.poly);
+      if(RND()<.5){
+        const outer=scalePoly(b.poly,c,.92), inner=rectAt(c,dirVec,nVec,maxA*.42,maxN*.38);
+        b.footprintParts=[{poly:clipToPoly(outer,b.poly,2),hole:inner}];
+      }else{
+        const a2=maxA*.85,n2=maxN*.85,cut=maxA*.5;
+        const raw=[[-a2,-n2],[a2,-n2],[a2,n2-cut],[a2-cut,n2-cut],[a2-cut,n2],[-a2,n2]]
+          .map(([a,n])=>addv(c,dirVec,a,nVec,n));
+        b.footprintParts=[{poly:clipToPoly(raw,b.poly,2),hole:null}];
+      }
+      budget--;
+      if(RND()<.55){
+        const nIdx=nearbyFreeLot(b.c,CELL*.85);
+        if(nIdx>=0){
+          claimedNeighbor.add(nIdx);
+          const nb=out.buildings[nIdx], roll=RND();
+          if(roll<.4)out.reserved.push({type:'giardino',poly:nb.poly,name:null,
+            shapePoly:organicBlob(nb.poly,.20,rr(0,Math.PI*2),.72)});
+          else if(roll<.75)out.reserved.push({type:'piazza',poly:nb.poly,name:null,shapePoly:null});
+          else out.reserved.push({type:'fontana',poly:nb.poly,name:null,
+            shapePoly:organicBlob(nb.poly,.05,rr(0,Math.PI*2),.4)});
+        }
+      }
+    }
+    if(claimedNeighbor.size)out.buildings=out.buildings.filter((b,i)=>!claimedNeighbor.has(i));
   }
 
   const diag=computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river);

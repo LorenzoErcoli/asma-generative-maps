@@ -39,11 +39,15 @@ function tessutoQuaysLayer(out,P){
 function tessutoBuildingsLayer(out,P){
   let s='<g stroke-linejoin="round">';
   for(const b of out.buildings){
-    if(b.landmark){
-      const fill=LANDMARK_FILL[b.landmark.cat]||P.built;
-      for(const part of (b.footprintParts||[{poly:b.poly,hole:null}])){
+    // footprintParts non implica piu' per forza un landmark vero: anche un
+    // palazzo comune puo' avere una pianta piu' articolata (vedi i palazzi
+    // complessi sparsi), col colore normale invece che quello del landmark.
+    if(b.footprintParts){
+      const fill=b.landmark?(LANDMARK_FILL[b.landmark.cat]||P.built):P.built;
+      const stroke=b.landmark?P.ink:P.builtLn;
+      for(const part of b.footprintParts){
         const d=part.hole? dPoly(part.poly,true)+' '+dPoly(part.hole,true) : dPoly(part.poly,true);
-        s+=`<path d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${P.ink}" stroke-width="1"/>`;
+        s+=`<path d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${stroke}" stroke-width="${b.landmark?1:.5}"/>`;
       }
     }else if(b.A>=MIN_BUILDING_DRAW){
       const rect=rectFootprint(b.poly,.84);
@@ -72,8 +76,9 @@ const PIAZZA_FILL=P=>mixHex(P.built,P.paper,.55);
 function tessutoReservedLayer(out,P){
   let s='';
   for(const r of out.reserved){
-    const fill=r.type==='piazza'?PIAZZA_FILL(P):r.type==='giardino'?P.green:r.type==='verde'?P.green:'url(#ceme)';
-    const stroke=r.type==='piazza'?P.ink:r.type==='cimitero'?P.greenDk:P.greenDk;
+    const fill=r.type==='piazza'?PIAZZA_FILL(P):r.type==='giardino'||r.type==='verde'?P.green
+      :r.type==='fontana'?P.water:'url(#ceme)';
+    const stroke=r.type==='piazza'?P.ink:r.type==='fontana'?P.waterLn:r.type==='cimitero'?P.greenDk:P.greenDk;
     s+=`<path d="${dPoly(r.shapePoly||r.poly,true)}" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>`;
   }
   return s;
@@ -198,37 +203,79 @@ function polysOverlap(a,b){
   }
   return false;
 }
+// palazzi dalle forme piu' curiose (L, cortile, croce) quando c'e' spazio
+// per starci — stesso principio dei landmark veri (landmarkFootprint), solo
+// scelte a caso invece che dalla categoria della pedina. "outer" e' sempre
+// il rettangolo pieno d'ingombro: usato solo per il test di spazio libero,
+// mai per il disegno.
+function localToWorld(c,tv,nv,pts){return pts.map(([a,n])=>addv(c,tv,a,nv,n))}
+function fancyRiverShape(c,tv,nv){
+  const roll=RND();
+  if(roll<.4){
+    const A=rr(12,17),N=rr(9,13);
+    return{parts:[{poly:rectAt(c,tv,nv,A,N),hole:null}],outer:rectAt(c,tv,nv,A,N)};
+  }
+  if(roll<.65){
+    const A=rr(13,18),N=rr(11,15),a2=rr(6,9),n2=rr(6,9);
+    const poly=localToWorld(c,tv,nv,[[-A,-N],[A,-N],[A,N-n2],[A-a2,N-n2],[A-a2,N],[-A,N]]);
+    return{parts:[{poly,hole:null}],outer:rectAt(c,tv,nv,A,N)};
+  }
+  if(roll<.85){
+    const A=rr(14,19),N=rr(12,16);
+    const outer=rectAt(c,tv,nv,A,N), inner=rectAt(c,tv,nv,A*.5,N*.5);
+    return{parts:[{poly:outer,hole:inner}],outer};
+  }
+  const A=rr(13,17),N=rr(11,14);
+  return{parts:[{poly:rectAt(c,tv,nv,A,N*.4),hole:null},{poly:rectAt(c,tv,nv,A*.4,N),hole:null}],outer:rectAt(c,tv,nv,A,N)};
+}
 function riverbankRowShapes(river,out){
   const shapes=[],placed=[];
+  // controllo di spazio libero vero, ma con piu' tentativi in cascata: prima
+  // una forma grande e curiosa, poi (se non ci sta) una casetta semplice
+  // piu' piccola, solo alla fine si arrende — la fila tornava piena di buchi
+  // anche dove c'era spazio poco oltre, perche' al primo affondo bloccato
+  // (un edificio vero che sporge un po' verso il fiume) si passava oltre
+  // senza riprovare piu' piccolo o piu' vicino/lontano dal fiume.
+  const spaceFree=(poly,c)=>{
+    for(const b of out.buildings){if(dist(b.c,c)>75)continue;if(polysOverlap(poly,b.poly))return false}
+    for(const rz of out.reserved){const rp=rz.shapePoly||rz.poly,rc=centroid(rp);if(dist(rc,c)>75)continue;if(polysOverlap(poly,rp))return false}
+    for(const s of out.streets){if(s.phase==='lot')continue;const mid=[(s.pts[0][0]+s.pts[1][0])/2,(s.pts[0][1]+s.pts[1][1])/2];if(dist(mid,c)>42)continue;if(distSeg(c,s.pts[0],s.pts[1])<7)return false}
+    for(const pl of placed){if(dist(pl.c,c)>58)continue;if(polysOverlap(poly,pl.outer))return false}
+    return true;
+  };
+  const tryPlace=(c,tv,nv,preferPiazzetta)=>{
+    const ri=riverAt(river,c);
+    if(Math.abs(ri.side)<=ri.hw)return null;
+    if(preferPiazzetta){
+      const poly=rectAt(c,tv,nv,rr(11,15),rr(9,12));
+      return spaceFree(poly,c)?{parts:[{poly,hole:null}],outer:poly,kind:'piazzetta'}:null;
+    }
+    const fancy=fancyRiverShape(c,tv,nv);
+    if(spaceFree(fancy.outer,c))return{...fancy,kind:'house'};
+    const small=rectAt(c,tv,nv,rr(8,12),rr(6,9));
+    if(spaceFree(small,c))return{parts:[{poly:small,hole:null}],outer:small,kind:'house'};
+    return null;
+  };
   for(const side of[-1,1]){
     let lastPt=null;
     for(let i=0;i<river.pts.length;i++){
       const p=river.pts[i];
-      if(lastPt&&dist(p,lastPt)<rr(26,34))continue;
+      if(lastPt&&dist(p,lastPt)<rr(16,21))continue;
       lastPt=p;
       const lo=Math.max(0,i-3), hi=Math.min(river.pts.length-1,i+3);
       const a=river.pts[lo], b=river.pts[hi];
       const tv=norm([b[0]-a[0],b[1]-a[1]]);
       const nv=[-tv[1]*side,tv[0]*side];
       const hw=river.hw[i];
-      const rows=RND()<.72?1:2;
-      for(let row=0;row<rows;row++){
-        const depth=hw+9+row*28+rr(0,10);
+      for(let attempt=0;attempt<5;attempt++){
+        const depth=hw+8+attempt*15+rr(0,7);
         const c=[p[0]+nv[0]*depth,p[1]+nv[1]*depth];
-        const ri=riverAt(river,c);
-        if(Math.abs(ri.side)<=ri.hw)continue; // ancora in acqua, salta
-        const isPiazzetta=RND()<.1;
-        const poly=isPiazzetta?rectAt(c,tv,nv,rr(11,15),rr(9,12)):rectAt(c,tv,nv,rr(9,13),rr(7,10));
-        // spazio libero? controllo solo cio' che sta davvero vicino, per
-        // non scandire tutta la citta' ad ogni casetta candidata.
-        let blocked=false;
-        for(const b of out.buildings){if(dist(b.c,c)>75)continue;if(polysOverlap(poly,b.poly)){blocked=true;break}}
-        if(!blocked)for(const rz of out.reserved){const rp=rz.shapePoly||rz.poly,rc=centroid(rp);if(dist(rc,c)>65)continue;if(polysOverlap(poly,rp)){blocked=true;break}}
-        if(!blocked)for(const s of out.streets){if(s.phase==='lot')continue;const mid=[(s.pts[0][0]+s.pts[1][0])/2,(s.pts[0][1]+s.pts[1][1])/2];if(dist(mid,c)>42)continue;if(distSeg(c,s.pts[0],s.pts[1])<9){blocked=true;break}}
-        if(!blocked)for(const pl of placed){if(dist(pl.c,c)>38)continue;if(polysOverlap(poly,pl.poly)){blocked=true;break}}
-        if(blocked)continue; // poco spazio: non ci metto niente
-        placed.push({poly,c});
-        shapes.push({kind:isPiazzetta?'piazzetta':'house',poly});
+        const preferPiazzetta=attempt===0&&RND()<.09;
+        const placedShape=tryPlace(c,tv,nv,preferPiazzetta);
+        if(!placedShape)continue;
+        placed.push({outer:placedShape.outer,c});
+        shapes.push(placedShape);
+        break;
       }
     }
   }
@@ -238,10 +285,12 @@ function riverbankFillLayer(river,P,out){
   if(!river)return '';
   let s='';
   for(const sh of riverbankRowShapes(river,out)){
-    if(sh.kind==='piazzetta')
-      s+=`<path d="${dPoly(sh.poly,true)}" fill="${PIAZZA_FILL(P)}" stroke="${P.ink}" stroke-width=".6"/>`;
-    else
-      s+=`<path d="${dPoly(sh.poly,true)}" fill="${P.built}" stroke="${P.builtLn}" stroke-width=".5"/>`;
+    const fill=sh.kind==='piazzetta'?PIAZZA_FILL(P):P.built;
+    const stroke=sh.kind==='piazzetta'?P.ink:P.builtLn;
+    for(const part of sh.parts){
+      const d=part.hole?dPoly(part.poly,true)+' '+dPoly(part.hole,true):dPoly(part.poly,true);
+      s+=`<path d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${stroke}" stroke-width=".5"/>`;
+    }
   }
   return s;
 }

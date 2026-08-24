@@ -58,6 +58,8 @@
     <button id="clear">Pulisci</button>
     <button id="demo">Demo</button>
     <button id="colorTest">Test colori</button>
+    <button id="shapeTest">Matrice 8 colori</button>
+    <button id="redTest">Test rosso</button>
     <button id="send">Invia locale</button>
     <button id="full">Fullscreen</button>
   </div>
@@ -111,6 +113,31 @@ const SIMPLE_SHAPES={
 };
 function applySimpleShapes(list){list.forEach(icon=>{if(SIMPLE_SHAPES[icon.id])Object.assign(icon,SIMPLE_SHAPES[icon.id])})}
 applySimpleShapes(ICONS);
+const MARKER_COLORS=[
+  {id:'rosso',name:'Rosso',hex:'#ff0d19'},
+  {id:'arancione',name:'Arancione',hex:'#ff6600'},
+  {id:'giallo',name:'Giallo',hex:'#ffe600'},
+  {id:'verde',name:'Verde',hex:'#19ff26'},
+  {id:'turchese',name:'Turchese',hex:'#26ffd9'},
+  {id:'blu',name:'Blu',hex:'#0040ff'},
+  {id:'viola',name:'Viola',hex:'#590dff'},
+  {id:'magenta',name:'Magenta',hex:'#ff00d9'}
+];
+const MARKER_SHAPES=[
+  {id:'quadrato',name:'Quadrato',svg:'<path d="M28 28h44v44H28z"/>'},
+  {id:'cerchio',name:'Cerchio',svg:'<path d="M50 25a25 25 0 1 0 0 50 25 25 0 1 0 0-50z"/>'},
+  {id:'triangolo',name:'Triangolo',svg:'<path d="M50 24 78 72H22z"/>'},
+  {id:'croce',name:'Croce',svg:'<path d="M36 28h28v22h22v28H64v22H36V78H14V50h22z"/>'},
+  {id:'pentagono',name:'Pentagono',svg:'<path d="M25 34h50v28L50 82 25 62z"/>'}
+];
+function buildMarkerIcons(){
+  const out=[];
+  for(const color of MARKER_COLORS)for(const shape of MARKER_SHAPES){
+    out.push({id:`${color.id}-${shape.id}`,name:`${color.name} ${shape.name}`,colorId:color.id,colorHex:color.hex,shapeId:shape.id,scale:.92,dx:0,dy:0,svg:shape.svg});
+  }
+  return out;
+}
+ICONS.splice(0,ICONS.length,...buildMarkerIcons());
 const TERR=[['water','Acqua'],['hill','Rilievo']];
 const TOOLS=[
   ['empty','Vuoto',null],
@@ -122,14 +149,7 @@ let tool=TOOLS[3], grid=Array.from({length:N},()=>Array(N).fill(null)), ord=0;
 const board=document.getElementById('board'), tools=document.getElementById('tools');
 const catById=Object.fromEntries(ICONS.map((c,i)=>[c.id,{...c,n:i+1}]));
 const ICON_BOOST=1.06;
-const CAT_COLOR={
-  chiesa:'#e33b2f',cimitero:'#e33b2f',monumento:'#e33b2f',
-  municipio:'#b88314',piazza:'#b88314',torre:'#b88314',
-  mercato:'#00a6a6',stazione:'#00a6a6',porto:'#00a6a6',bottega:'#00a6a6',
-  ponte:'#b54bc9',porta:'#b54bc9',
-  biblioteca:'#7c5fe4',teatro:'#7c5fe4',giardino:'#7c5fe4',fontana:'#7c5fe4',
-  osteria:'#41484b',locale:'#41484b'
-};
+const CAT_COLOR=Object.fromEntries(ICONS.map(i=>[i.id,i.colorHex]));
 function svgIcon(cat){
   const k=cat.scale*ICON_BOOST, tr=`translate(${cat.dx} ${cat.dy}) scale(${k}) translate(${50/k-50} ${50/k-50})`;
   return `<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="#fff" transform="${tr}">${cat.svg}</g>${cat.detail?`<g fill="rgba(0,0,0,.24)" transform="${tr} scale(.72) translate(19 19)">${cat.detail}</g>`:''}</svg>`;
@@ -176,28 +196,39 @@ function send(show=true){
 }
 function demo(){
   grid=Array.from({length:N},()=>Array(N).fill(null));ord=0;
-  [[0,2],[1,2],[2,3],[3,3],[4,4],[5,4],[6,5],[7,5]].forEach(([r,c])=>grid[r][c]={kind:'terrain',terrain:'water'});
-  [['piazza',3,4],['municipio',2,4],['chiesa',4,2],['ponte',4,3],['mercato',5,2],['teatro',1,5],['stazione',6,6]].forEach(([cat,r,c])=>grid[r][c]={kind:'place',cat,ord:++ord});
+  [
+    ['rosso-quadrato',1,1],['rosso-cerchio',2,4],['arancione-triangolo',4,2],['giallo-croce',3,5],
+    ['verde-pentagono',5,3],['turchese-quadrato',6,5],['blu-cerchio',1,6],['viola-triangolo',5,6],['magenta-croce',6,2]
+  ].forEach(([cat,r,c])=>grid[r][c]={kind:'place',cat,ord:++ord});
   render();send(false);
 }
 function colorTest(){
-  const cols=[
-    {kind:'terrain',terrain:'water'},
-    {kind:'terrain',terrain:'hill'},
-    {kind:'place',cat:'chiesa'},
-    {kind:'place',cat:'bottega'},
-    {kind:'place',cat:'piazza'},
-    {kind:'place',cat:'fontana'},
-    {kind:'place',cat:'porta'},
-    {kind:'place',cat:'osteria'}
-  ];
+  const cols=MARKER_COLORS.map(color=>({kind:'place',cat:`${color.id}-quadrato`}));
   ord=0;
   grid=Array.from({length:N},(_,r)=>Array.from({length:N},(_,c)=>({...cols[c],ord:++ord})));
+  render();send(false);
+}
+function shapeTest(){
+  ord=0;
+  grid=Array.from({length:N},(_,r)=>Array.from({length:N},(_,c)=>{
+    if(r>=MARKER_SHAPES.length)return null;
+    return {kind:'place',cat:`${MARKER_COLORS[c].id}-${MARKER_SHAPES[r].id}`,ord:++ord};
+  }));
+  render();send(false);
+}
+function redTest(){
+  ord=0;
+  grid=Array.from({length:N},()=>Array(N).fill(null));
+  MARKER_SHAPES.forEach((shape,r)=>{
+    grid[r][0]={kind:'place',cat:`rosso-${shape.id}`,ord:++ord};
+  });
   render();send(false);
 }
 document.getElementById('clear').onclick=()=>{grid=Array.from({length:N},()=>Array(N).fill(null));ord=0;render();send(false)};
 document.getElementById('demo').onclick=demo;
 document.getElementById('colorTest').onclick=colorTest;
+document.getElementById('shapeTest').onclick=shapeTest;
+document.getElementById('redTest').onclick=redTest;
 document.getElementById('send').onclick=()=>send(true);
 document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen();
 renderTools();demo();

@@ -15,6 +15,9 @@
   button,select{width:100%;min-height:38px;border:1px solid var(--line);border-radius:7px;background:#33291f;color:var(--ink);font:inherit;margin:4px 0}
   button.primary{background:var(--accent);color:#21170d;border-color:var(--accent);font-weight:700}
   button.active{background:#6f8a4a;border-color:#92b767;color:#fff}
+  button.ai{border-color:#5f7ea8;background:#26384d}
+  .toggle-row{display:flex;align-items:center;gap:8px;min-height:34px;margin:3px 0;color:var(--ink);font-size:12px}
+  .toggle-row input{width:18px;height:18px;accent-color:var(--accent)}
   #status{font-size:12px;color:var(--muted);line-height:1.4;margin-top:8px}
   main{display:grid;gap:10px}
   .stage{position:relative;min-height:55vh;background:#050505;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -22,6 +25,22 @@
   video{opacity:0}
   #preview{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;background:#111;border:1px solid var(--line);padding:2px;max-width:520px}
   #debug{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;max-width:860px}
+  #calibGuide{background:#241d16;border:1px solid var(--line);border-radius:8px;padding:10px;max-width:520px}
+  #calibGuide h2{font-size:13px;margin:0 0 6px;color:var(--ink)}
+  #calibGuide p{font-size:11px;margin:0 0 8px;color:var(--muted)}
+  #matrixReport{max-width:860px}
+  #matrixReport:empty{display:none}
+  .matrix-report{background:#241d16;border:1px solid var(--line);border-radius:8px;padding:10px}
+  .matrix-report h2{font-size:13px;margin:0 0 7px}
+  .matrix-summary{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .matrix-score{border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:11px}
+  .matrix-colors{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+  .matrix-color{border-left:5px solid var(--swatch);background:#19140f;padding:5px 7px;font-size:10px;min-width:0}
+  .matrix-errors{margin:8px 0 0;font-size:10px;color:var(--muted);line-height:1.45}
+  .guide-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;background:#111;padding:2px}
+  .guide-cell{aspect-ratio:1;background:#3a332b;border:1px solid #5a4b3b;display:grid;place-items:center;font-size:9px;color:#d8c9ae;position:relative}
+  .guide-cell.target{background:#fff;color:#111;border:2px solid #111}
+  .guide-token{width:68%;aspect-ratio:1;border-radius:50%;border:2px solid #111;display:grid;place-items:center;color:#fff;font-size:8px;font-weight:800}
   .dbg{background:#241d16;border:1px solid var(--line);border-radius:7px;padding:7px;font-size:11px;color:var(--ink)}
   .dbg b{display:block;margin-bottom:4px}.dbg .sw{display:inline-block;width:13px;height:13px;border-radius:50%;border:1px solid #fff;vertical-align:-2px;margin-right:4px}
   .cell{aspect-ratio:1;background:#f5f5f5;color:#111;display:grid;place-items:center;font-size:11px;font-weight:800;position:relative}
@@ -32,38 +51,70 @@
   .cell .mini-token span{font-size:9px;color:#fff;text-shadow:0 1px 2px #000;max-width:90%;overflow:hidden;text-overflow:ellipsis}
   .cell .score{position:absolute;right:2px;bottom:1px;font-size:8px;color:#111;background:rgba(255,255,255,.76);border-radius:3px;padding:0 2px}
   .cell .unknown{position:absolute;font-size:13px;color:#fff;z-index:1}
+  .cell .ai-badge{position:absolute;left:2px;top:2px;font-size:7px;line-height:14px;padding:0 3px;background:#26384d;color:#fff;border-radius:3px;z-index:2}
+  .cell.needs-review{outline:4px solid #f0a12b;outline-offset:-4px}
+  .cell .review-badge{position:absolute;right:2px;top:2px;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;background:#f0a12b;color:#17120b;font-size:12px;font-weight:900;z-index:3}
+  #reviewSummary{max-width:860px}
+  #reviewSummary:empty{display:none}
+  .review-summary{background:#33291f;border:1px solid #f0a12b;border-radius:8px;padding:8px 10px;font-size:11px;line-height:1.45;color:var(--ink)}
   .water{background:#006cb6;color:white}.mountain{background:#744018;color:white}.hill{background:#5c8e24;color:white}
   .place{background:#fff;border:4px solid #111}.jolly{background:#fff2b9;border:4px solid #111}
-  @media (max-width:850px){body{display:block}.stage{height:55vh;margin-top:10px}}
+  @media (max-width:850px){body{display:block}.stage{height:55vh;margin-top:10px}.matrix-colors{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
 <body>
 <aside>
   <h1>Scanner camera</h1>
-  <p>Premi Rileva scacchiera per stimare gli angoli, poi trascina i quattro pallini se serve. La lettura usa solo la griglia interna corretta a mano.</p>
+  <p>Rileva la scacchiera, calibra la base senza pedine, poi calibra i colori e inserisci le pedine.</p>
   <select id="camera"></select>
   <button class="primary" id="start">Avvia camera</button>
   <button id="track">Rileva scacchiera</button>
   <button id="manual">Imposta a mano</button>
-  <button id="scan">Leggi colori</button>
-  <button id="calibrateColors">Calibra colori</button>
+  <button id="scan">Rileva pedine</button>
+  <button class="ai" id="aiScan">Verifica forme con AI</button>
+  <button class="ai" id="aiCorners">Proponi bordi con AI</button>
+  <label class="toggle-row"><input id="autoAi" type="checkbox" checked> AI automatica sotto 0,90</label>
+  <button id="calibrateBoard">Calibra base vuota</button>
+  <button id="calibrateColors">Calibra 8 colori</button>
+  <button id="calibrateRed">Calibra rosso</button>
+  <button id="matrixTest">Rileva e valuta 8 x 5</button>
   <button id="resetCalibration">Reset calibrazione</button>
-  <button id="fullGridMode">Griglia piena spenta</button>
-  <button id="terrainMode">Terreni spenti</button>
   <button id="copyDebug">Copia debug</button>
   <button id="saveSnapshot">Scarica snapshot</button>
+  <button id="loadSnapshotButton">Carica snapshot</button>
+  <input id="loadSnapshot" type="file" accept="application/json" hidden>
   <button id="send">Invia alla mappa</button>
   <div id="status">Pronto.</div>
 </aside>
 <main>
   <div class="stage"><video id="video" playsinline muted></video><canvas id="canvas"></canvas></div>
+  <div id="calibGuide"></div>
+  <div id="matrixReport"></div>
+  <div id="reviewSummary"></div>
   <div id="preview"></div>
   <div id="debug"></div>
 </main>
-<script async src="https://docs.opencv.org/4.10.0/opencv.js" onload="cv.onRuntimeInitialized=()=>{window.asmaCvReady=true;document.dispatchEvent(new Event('asma-cv-ready'))}"></script>
+<script>
+function onOpenCvScriptLoaded(){
+  try{
+    const ready=module=>{
+      window.cv=module||window.cv;
+      window.asmaCvReady=!!window.cv?.Mat;
+      document.dispatchEvent(new Event('asma-cv-ready'));
+    };
+    if(window.cv?.calledRun)ready(window.cv);
+    else if(typeof window.cv?.then==='function')window.cv.then(ready);
+    else ready(window.cv);
+  }catch(error){
+    window.asmaCvError=error?.message||String(error);
+    document.dispatchEvent(new Event('asma-cv-error'));
+  }
+}
+</script>
+<script async src="vendor/opencv.js" onload="onOpenCvScriptLoaded()"></script>
 <script>
 "use strict";
-const N=8, KEY='asma.externalGrid.v1', CH='asma-grid-v1', COLOR_CAL_KEY='asma.colorCalibration.v4';
+const N=8, KEY='asma.externalGrid.v1', CH='asma-grid-v1', COLOR_CAL_KEY='asma.colorCalibration.v5', BOARD_CAL_KEY='asma.boardCalibration.v1', AUTO_AI_KEY='asma.autoAi.v1';
 const ICONS=[
  {id:'chiesa',name:'Chiesa',scale:.82,dx:0,dy:1,svg:'<path d="M50 16a34 34 0 1 0 0 68 34 34 0 0 0 0-68zM46 30h8v14h14v8H54v20h-8V52H32v-8h14z"/>'},
  {id:'cimitero',name:'Cimitero',scale:.84,dx:0,dy:2,svg:'<path d="M42 14h16v20h18v14H58v28h22v10H20V76h22V48H24V34h18z"/>'},
@@ -106,39 +157,73 @@ const SIMPLE_SHAPES={
 };
 function applySimpleShapes(list){list.forEach(icon=>{if(SIMPLE_SHAPES[icon.id])Object.assign(icon,SIMPLE_SHAPES[icon.id])})}
 applySimpleShapes(ICONS);
+const MARKER_COLORS=[
+  {id:'rosso',name:'Rosso',hex:'#ff0d19'},
+  {id:'arancione',name:'Arancione',hex:'#ff6600'},
+  {id:'giallo',name:'Giallo',hex:'#ffe600'},
+  {id:'verde',name:'Verde',hex:'#19ff26'},
+  {id:'turchese',name:'Turchese',hex:'#26ffd9'},
+  {id:'blu',name:'Blu',hex:'#0040ff'},
+  {id:'viola',name:'Viola',hex:'#590dff'},
+  {id:'magenta',name:'Magenta',hex:'#ff00d9'}
+];
+const MARKER_SHAPES=[
+  {id:'quadrato',name:'Quadrato',svg:'<path d="M28 28h44v44H28z"/>'},
+  {id:'cerchio',name:'Cerchio',svg:'<path d="M50 25a25 25 0 1 0 0 50 25 25 0 1 0 0-50z"/>'},
+  {id:'triangolo',name:'Triangolo',svg:'<path d="M50 24 78 72H22z"/>'},
+  {id:'croce',name:'Croce',svg:'<path d="M36 28h28v22h22v28H64v22H36V78H14V50h22z"/>'},
+  {id:'pentagono',name:'Pentagono',svg:'<path d="M25 34h50v28L50 82 25 62z"/>'}
+];
+function buildMarkerIcons(){
+  const out=[];
+  for(const color of MARKER_COLORS)for(const shape of MARKER_SHAPES){
+    out.push({id:`${color.id}-${shape.id}`,name:`${color.name} ${shape.name}`,colorId:color.id,colorHex:color.hex,shapeId:shape.id,scale:.92,dx:0,dy:0,svg:shape.svg});
+  }
+  return out;
+}
+ICONS.splice(0,ICONS.length,...buildMarkerIcons());
 const CATS=ICONS.map(i=>i.id);
 const ICON_BOOST=1.06;
 const ICON_MATCH_SIZE=32;
 const TOKEN_MATCH_SIZE=40;
+const BOARD_SCAN_SIZE=400;
 const READ_ICONS=true;
-const CAT_COLOR={
-  chiesa:'#e33b2f',cimitero:'#e33b2f',monumento:'#e33b2f',
-  municipio:'#b88314',piazza:'#b88314',torre:'#b88314',
-  mercato:'#00a6a6',stazione:'#00a6a6',porto:'#00a6a6',bottega:'#00a6a6',
-  ponte:'#b54bc9',porta:'#b54bc9',
-  biblioteca:'#7c5fe4',teatro:'#7c5fe4',giardino:'#7c5fe4',fontana:'#7c5fe4',
-  osteria:'#41484b',locale:'#41484b'
-};
-const COLOR_TEST_COLUMNS=[
-  {kind:'terrain',terrain:'water',id:'water',hex:'#006cb6'},
-  {kind:'terrain',terrain:'hill',id:'hill',hex:'#5c8e24'},
-  {kind:'place',cat:'chiesa',id:'chiesa',hex:CAT_COLOR.chiesa},
-  {kind:'place',cat:'bottega',id:'bottega',hex:CAT_COLOR.bottega},
-  {kind:'place',cat:'piazza',id:'piazza',hex:CAT_COLOR.piazza},
-  {kind:'place',cat:'fontana',id:'fontana',hex:CAT_COLOR.fontana},
-  {kind:'place',cat:'porta',id:'porta',hex:CAT_COLOR.porta},
-  {kind:'place',cat:'osteria',id:'osteria',hex:CAT_COLOR.osteria}
-];
-let stream=null, corners=[], lastGrid=Array.from({length:N},()=>Array(N).fill(null)), boardVision=emptyVision(), ord=0;
+const CAT_COLOR=Object.fromEntries(ICONS.map(i=>[i.id,i.colorHex]));
+const COLOR_TEST_COLUMNS=MARKER_COLORS.map(color=>({kind:'place',cat:`${color.id}-quadrato`,id:color.id,hex:color.hex}));
+let stream=null, staticFrame=null, drawLoopActive=false, corners=[], lastGrid=Array.from({length:N},()=>Array(N).fill(null)), boardVision=emptyVision(), ord=0;
 let lastSentSignature='', lastDebug=[], trackQuality=0, draggingCorner=-1, manualMode=false, readTerrains=false, assumeFullGrid=false;
+let lastGlobalDetectorError='';
+let lastCandidateDebug=[];
+let lastAiResult=null;
 let colorCalibration=loadColorCalibration();
+let boardCalibration=loadBoardCalibration();
+let cvShapeTemplatesCache=null;
 const video=document.getElementById('video'), canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d');
 const rawCanvas=document.createElement('canvas'), rawCtx=rawCanvas.getContext('2d',{willReadFrequently:true});
-const status=document.getElementById('status'), preview=document.getElementById('preview'), debugEl=document.getElementById('debug'), cameraSel=document.getElementById('camera');
+const status=document.getElementById('status'), preview=document.getElementById('preview'), debugEl=document.getElementById('debug'), cameraSel=document.getElementById('camera'), calibGuide=document.getElementById('calibGuide'), matrixReport=document.getElementById('matrixReport'), reviewSummary=document.getElementById('reviewSummary');
 const ICON_TEMPLATES=buildIconTemplates();
 function setStatus(t){status.textContent=t}
-document.addEventListener('asma-cv-ready',()=>setStatus('OpenCV.js pronto. Puoi leggere la scacchiera.'));
-function emptyVision(){return Array.from({length:N},()=>Array.from({length:N},()=>({dark:false,pawn:false,cat:null,terrain:null,jolly:null,score:0,debug:null,color:null,top:[],code:null,ink:0})))}
+document.addEventListener('asma-cv-ready',()=>{
+  setStatus('OpenCV.js pronto. Puoi leggere la scacchiera.');
+  if(staticFrame&&corners.length===4)requestAnimationFrame(()=>scan(false));
+});
+document.addEventListener('asma-cv-error',()=>setStatus(`OpenCV.js non disponibile: ${window.asmaCvError||'errore di caricamento'}`));
+if(window.asmaCvReady)setStatus('OpenCV.js pronto. Puoi leggere la scacchiera.');
+function emptyVision(){return Array.from({length:N},()=>Array.from({length:N},()=>({dark:false,pawn:false,possiblePawn:false,cat:null,terrain:null,jolly:null,score:0,presenceConfidence:0,colorConfidence:0,shapeConfidence:0,reviewReasons:null,colorDisagreement:null,debug:null,color:null,top:[],code:null,ink:0})))}
+function calibrationColorCount(){return colorCalibration?.colors?.length||0}
+function redCalibrationTargets(){return MARKER_SHAPES.map((shape,r)=>({r,c:0,cat:`rosso-${shape.id}`,label:shape.name,hex:MARKER_COLORS[0].hex}))}
+function matrixCalibrationTargets(){
+  return MARKER_SHAPES.flatMap((shape,r)=>MARKER_COLORS.map((color,c)=>({r,c,cat:`${color.id}-${shape.id}`,label:shape.name,hex:color.hex})));
+}
+function renderCalibrationGuide(targets=matrixCalibrationTargets(),title='Calibrazione 8 colori',description='Metti le cinque forme sulle prime cinque righe. Ogni colonna deve mantenere lo stesso colore.'){
+  const byCell=new Map(targets.map(t=>[`${t.r},${t.c}`,t]));
+  calibGuide.innerHTML=`<h2>${title}</h2><p>${description}</p><div class="guide-grid">${
+    Array.from({length:N*N},(_,i)=>{
+      const r=Math.floor(i/N), c=i%N, t=byCell.get(`${r},${c}`);
+      return `<div class="guide-cell ${t?'target':''}">${t?`<div class="guide-token" style="background:${t.hex}">${t.label.slice(0,3)}</div>`:''}</div>`;
+    }).join('')
+  }</div>`;
+}
 async function listCameras(){
   const devices=await navigator.mediaDevices.enumerateDevices();
   const cams=devices.filter(d=>d.kind==='videoinput');
@@ -146,12 +231,14 @@ async function listCameras(){
 }
 async function start(){
   if(stream)stream.getTracks().forEach(t=>t.stop());
+  staticFrame=null;
   const deviceId=cameraSel.value||undefined;
   stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:deviceId?{exact:deviceId}:undefined,width:{ideal:1920},height:{ideal:1080}},audio:false});
-  video.srcObject=stream;await video.play();await listCameras();drawLoop();setStatus('Camera attiva. Premi Rileva scacchiera.');
+  video.srcObject=stream;await video.play();await listCameras();ensureDrawLoop();setStatus('Camera attiva. Premi Rileva scacchiera.');
 }
+function ensureDrawLoop(){if(drawLoopActive)return;drawLoopActive=true;drawLoop()}
 function fit(){
-  const rect=canvas.getBoundingClientRect(), vw=video.videoWidth||1, vh=video.videoHeight||1;
+  const rect=canvas.getBoundingClientRect(), vw=staticFrame?.naturalWidth||video.videoWidth||1, vh=staticFrame?.naturalHeight||video.videoHeight||1;
   const s=Math.min(rect.width/vw,rect.height/vh), w=vw*s, h=vh*s, ox=(rect.width-w)/2, oy=(rect.height-h)/2;
   return {rect,vw,vh,s,w,h,ox,oy};
 }
@@ -167,13 +254,14 @@ function drawLoop(){
   ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
   ctx.clearRect(0,0,rect.width,rect.height);
   const f=fit();
-  if(video.videoWidth&&video.videoHeight){
-    if(rawCanvas.width!==video.videoWidth||rawCanvas.height!==video.videoHeight){
-      rawCanvas.width=video.videoWidth;rawCanvas.height=video.videoHeight;
+  const source=staticFrame||video,sourceWidth=staticFrame?.naturalWidth||video.videoWidth,sourceHeight=staticFrame?.naturalHeight||video.videoHeight;
+  if(sourceWidth&&sourceHeight){
+    if(rawCanvas.width!==sourceWidth||rawCanvas.height!==sourceHeight){
+      rawCanvas.width=sourceWidth;rawCanvas.height=sourceHeight;
     }
-    rawCtx.drawImage(video,0,0,rawCanvas.width,rawCanvas.height);
+    rawCtx.drawImage(source,0,0,rawCanvas.width,rawCanvas.height);
+    ctx.drawImage(source,f.ox,f.oy,f.w,f.h);
   }
-  ctx.drawImage(video,f.ox,f.oy,f.w,f.h);
   drawOverlay();
   requestAnimationFrame(drawLoop);
 }
@@ -240,7 +328,7 @@ function detectOnce(){
   }
   corners=found.map(p=>({x:p.x,y:p.y}));
   trackQuality=found.quality||.8;
-  setStatus('Scacchiera rilevata. Trascina i pallini per correggere, poi Leggi colori.');
+  setStatus('Scacchiera rilevata. Trascina i pallini per correggere, poi Rileva pedine.');
   return true;
 }
 function detectBoardCorners(){
@@ -501,12 +589,22 @@ function canvasMask(g,w,h,cols,rows){
   return out;
 }
 function maskVariants(mask){
-  const a=mask, b=rotateMask(a), c=rotateMask(b), d=rotateMask(c);
-  return [a,b,c,d];
+  // A physical marker can be placed at any angle: build an eight-angle template bank.
+  return Array.from({length:8},(_,i)=>rotateMaskByAngle(mask,i*45));
 }
 function rotateMask(mask){
   const n=ICON_MATCH_SIZE, out=Array(n*n).fill(0);
   for(let y=0;y<n;y++)for(let x=0;x<n;x++)out[x*n+(n-1-y)]=mask[y*n+x];
+  return out;
+}
+function rotateMaskByAngle(mask,degrees){
+  const n=ICON_MATCH_SIZE, out=Array(n*n).fill(0), mid=(n-1)/2;
+  const a=-degrees*Math.PI/180, cs=Math.cos(a), sn=Math.sin(a);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const dx=x-mid,dy=y-mid;
+    const sx=Math.round(mid+dx*cs-dy*sn),sy=Math.round(mid+dx*sn+dy*cs);
+    out[y*n+x]=(sx>=0&&sx<n&&sy>=0&&sy<n)?mask[sy*n+sx]:0;
+  }
   return out;
 }
 function iconById(id){return ICONS.find(i=>i.id===id)}
@@ -561,6 +659,10 @@ function sampleKnownTokenColor(r,c){
   return {...rgb,count:pts.length,spread};
 }
 function buildBoardVision(samples){
+  if(!window.asmaCvReady||!window.cv)return null;
+  return buildGlobalBoardVision(samples);
+}
+function buildLegacyBoardVision(samples){
   const lights=samples.flat().map(p=>p.l).sort((a,b)=>a-b);
   const median=quantile(lights,.5);
   const out=emptyVision();
@@ -574,7 +676,8 @@ function buildBoardVision(samples){
     out[r][c].debug=pawn;
     out[r][c].observedColor=observedColor;
     out[r][c].color=classifyTokenColor(observedColor);
-    const colorEvidence=out[r][c].color&&(assumeFullGrid?!!observedColor:(pawn.coreCount>=40&&out[r][c].color.confident));
+    const multiColorCalibration=calibrationColorCount()>1;
+    const colorEvidence=out[r][c].color&&(assumeFullGrid?!!observedColor&&multiColorCalibration:(multiColorCalibration&&pawn.coreCount>=40&&out[r][c].color.confident));
     out[r][c].pawn=pawn.hit||colorEvidence;
     out[r][c].presenceReason=pawn.hit?'ring':colorEvidence?'color':'none';
     if(out[r][c].pawn){
@@ -605,6 +708,345 @@ function buildBoardVision(samples){
     }
   }
   return out;
+}
+function buildGlobalBoardVision(samples){
+  let board=null,gray=null,blur=null,circles=null,colorMask=null,kernel=null,contours=null,hierarchy=null;
+  try{
+    lastGlobalDetectorError='';
+    board=rectifiedBoardMat();
+    if(!board||board.empty())return null;
+    gray=new cv.Mat();blur=new cv.Mat();circles=new cv.Mat();
+    cv.cvtColor(board,gray,cv.COLOR_RGBA2GRAY);
+    cv.medianBlur(gray,blur,5);
+    const cell=BOARD_SCAN_SIZE/N;
+    cv.HoughCircles(blur,circles,cv.HOUGH_GRADIENT,1.2,cell*.52,95,20,Math.round(cell*.22),Math.round(cell*.47));
+
+    colorMask=calibratedColorMask(board);
+    kernel=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(5,5));
+    cv.morphologyEx(colorMask,colorMask,cv.MORPH_OPEN,kernel);
+    cv.morphologyEx(colorMask,colorMask,cv.MORPH_CLOSE,kernel);
+    contours=new cv.MatVector();hierarchy=new cv.Mat();
+    cv.findContours(colorMask,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+
+    const candidates=[];
+    for(let i=0;i<circles.cols;i++){
+      const x=circles.data32F[i*3],y=circles.data32F[i*3+1],radius=circles.data32F[i*3+2];
+      candidates.push({x,y,radius,source:'circle'});
+    }
+    for(let i=0;i<contours.size();i++){
+      const cnt=contours.get(i),area=cv.contourArea(cnt),rect=cv.boundingRect(cnt),mom=cv.moments(cnt);
+      const x=mom.m00?mom.m10/mom.m00:rect.x+rect.width/2;
+      const y=mom.m00?mom.m01/mom.m00:rect.y+rect.height/2;
+      cnt.delete();
+      if(area<cell*cell*.11||area>cell*cell*.82)continue;
+      const aspect=rect.width/Math.max(1,rect.height);
+      if(aspect<.58||aspect>1.72||rect.width<cell*.38||rect.height<cell*.38)continue;
+      candidates.push({x,y,radius:(rect.width+rect.height)/4,source:'color'});
+    }
+
+    const accepted=[],borderline=[];
+    lastCandidateDebug=[];
+    for(const candidate of candidates){
+      const profile=annulusColorProfile(board,candidate);
+      const diagnostic={source:candidate.source,x:+candidate.x.toFixed(1),y:+candidate.y.toFixed(1),radius:+candidate.radius.toFixed(1),color:profile.color?.id||null,colorDistance:profile.color?+profile.color.d.toFixed(1):null,coverage:+(profile.coverage||0).toFixed(3),boardDistance:+(profile.boardDistance||0).toFixed(1),accepted:false,possible:false,reason:null};
+      const nearColor=profile.color&&profile.coverage>=.26&&profile.color.d<=90;
+      const separatedFromBoard=!boardCalibration||profile.boardDistance>=28;
+      if(!profile.color||profile.coverage<.34||profile.color.d>82){
+        diagnostic.reason='colore';diagnostic.possible=!!(nearColor&&separatedFromBoard);
+        if(diagnostic.possible)borderline.push({...candidate,profile});
+        lastCandidateDebug.push(diagnostic);continue;
+      }
+      if(boardCalibration&&profile.boardDistance<32){
+        diagnostic.reason='base';diagnostic.possible=profile.boardDistance>=28;
+        if(diagnostic.possible)borderline.push({...candidate,profile});
+        lastCandidateDebug.push(diagnostic);continue;
+      }
+      diagnostic.accepted=true;lastCandidateDebug.push(diagnostic);
+      const duplicate=accepted.find(p=>Math.hypot(p.x-candidate.x,p.y-candidate.y)<cell*.30);
+      const radiusFit=1-Math.min(1,Math.abs(candidate.radius/cell-.34)/.18);
+      const strength=profile.coverage+radiusFit*.08+(candidate.source==='color'?.14:0);
+      if(duplicate){
+        if(strength>duplicate.strength)Object.assign(duplicate,candidate,{profile,strength});
+      }else accepted.push({...candidate,profile,strength});
+    }
+
+    const out=emptyVision(),lights=samples.flat().map(p=>p.l).sort((a,b)=>a-b),median=quantile(lights,.5);
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+      const rgb=samples[r][c],warm=rgb.r>rgb.b+12&&rgb.g>rgb.b+5;
+      out[r][c].dark=warm&&rgb.l<median-7;
+    }
+    for(const pawn of accepted){
+      const r=Math.max(0,Math.min(N-1,Math.floor(pawn.y/cell)));
+      const c=Math.max(0,Math.min(N-1,Math.floor(pawn.x/cell)));
+      const shape=classifyShapeOnBoard(board,pawn);
+      const color=pawn.profile.color;
+      const presenceConfidence=Math.min(.99,.58+pawn.profile.coverage*.39);
+      const colorConfidence=Math.max(0,Math.min(.99,pawn.profile.coverage*(1-Math.min(1,(color.d||0)/110))));
+      const shapeConfidence=shape.confidence||0;
+      const score=shape.id?shapeConfidence:presenceConfidence;
+      if(out[r][c].pawn&&(out[r][c].presenceConfidence||0)>=presenceConfidence)continue;
+      const center={x:pawn.x/cell-c-.5,y:pawn.y/cell-r-.5};
+      out[r][c].pawn=true;
+      out[r][c].presenceReason=`global-${pawn.source}`;
+      out[r][c].color=color;
+      out[r][c].observedColor=pawn.profile.rgb;
+      out[r][c].score=score;
+      out[r][c].presenceConfidence=presenceConfidence;
+      out[r][c].colorConfidence=colorConfidence;
+      out[r][c].shapeConfidence=shapeConfidence;
+      out[r][c].ink=shape.ink||0;
+      out[r][c].top=shape.top||[];
+      if(shape.id)out[r][c].cat=`${color.id}-${shape.id}`;
+      out[r][c].debug=globalPawnDebug(pawn,shape,center);
+    }
+    for(const candidate of borderline){
+      const r=Math.max(0,Math.min(N-1,Math.floor(candidate.y/cell)));
+      const c=Math.max(0,Math.min(N-1,Math.floor(candidate.x/cell)));
+      if(out[r][c].pawn)continue;
+      const center={x:candidate.x/cell-c-.5,y:candidate.y/cell-r-.5};
+      const confidence=Math.max(.32,Math.min(.69,.25+candidate.profile.coverage*.72-(candidate.profile.color?.d||90)/500));
+      if(out[r][c].possiblePawn&&out[r][c].presenceConfidence>=confidence)continue;
+      out[r][c].possiblePawn=true;
+      out[r][c].presenceReason=`borderline-${candidate.source}`;
+      out[r][c].presenceConfidence=confidence;
+      out[r][c].color=candidate.profile.color;
+      out[r][c].observedColor=candidate.profile.rgb;
+      out[r][c].colorConfidence=Math.max(0,Math.min(.75,candidate.profile.coverage*(1-Math.min(1,(candidate.profile.color?.d||90)/110))));
+      out[r][c].reviewReasons=['presenza'];
+      out[r][c].debug=globalPawnDebug(candidate,{},center);
+    }
+    return out;
+  }catch(error){
+    lastGlobalDetectorError=error?.message||String(error);
+    console.warn('Global pawn detector fallback',error);
+    return null;
+  }finally{
+    for(const item of [board,gray,blur,circles,colorMask,kernel,contours,hierarchy])if(item)try{item.delete()}catch(e){}
+  }
+}
+function rectifiedBoardMat(){
+  const src=cv.imread(rawCanvas),dst=new cv.Mat();
+  const srcPts=cv.matFromArray(4,1,cv.CV_32FC2,corners.flatMap(p=>[p.x,p.y]));
+  const edge=BOARD_SCAN_SIZE-1;
+  const dstPts=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,edge,0,edge,edge,0,edge]);
+  const matrix=cv.getPerspectiveTransform(srcPts,dstPts);
+  cv.warpPerspective(src,dst,matrix,new cv.Size(BOARD_SCAN_SIZE,BOARD_SCAN_SIZE),cv.INTER_LINEAR,cv.BORDER_REPLICATE);
+  src.delete();srcPts.delete();dstPts.delete();matrix.delete();
+  return dst;
+}
+function rectifiedBoardImage(){
+  let board=null;
+  try{
+    board=rectifiedBoardMat();
+    const source=document.createElement('canvas'),output=document.createElement('canvas');
+    source.width=source.height=BOARD_SCAN_SIZE;
+    cv.imshow(source,board);
+    output.width=output.height=800;
+    const out=output.getContext('2d');
+    out.imageSmoothingEnabled=true;
+    out.imageSmoothingQuality='high';
+    out.drawImage(source,0,0,output.width,output.height);
+    return output.toDataURL('image/jpeg',.92);
+  }finally{if(board)board.delete()}
+}
+function detectionConfidence(seen){
+  if(!seen?.pawn)return 0;
+  const presence=seen.presenceConfidence||0,color=seen.color?seen.colorConfidence||0:0,shape=seen.cat?seen.shapeConfidence||0:0;
+  return Math.min(presence,color,shape);
+}
+function aiCalibrationContext(){
+  return (colorCalibration?.colors||[]).map(color=>({
+    id:color.id,
+    ref:compactRgb(color.ref),
+    spread:Number(color.spread)||0,
+    samples:(color.sampleRefs||[]).map(compactRgb)
+  }));
+}
+function aiTokenCrops(maxConfidence=Infinity){
+  let board=null;
+  try{
+    board=rectifiedBoardMat();
+    const source=document.createElement('canvas');source.width=source.height=BOARD_SCAN_SIZE;cv.imshow(source,board);
+    const cell=BOARD_SCAN_SIZE/N,tokens=[];
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+      const seen=boardVision[r][c];
+      if(!seen.pawn&&!seen.possiblePawn)continue;
+      if(seen.pawn&&detectionConfidence(seen)>=maxConfidence)continue;
+      const center=seen.debug?.center||{x:0,y:0};
+      const x=(c+.5+(center.x||0))*cell,y=(r+.5+(center.y||0))*cell,span=cell*1.06;
+      const crop=document.createElement('canvas');crop.width=crop.height=256;
+      const g=crop.getContext('2d');g.fillStyle='#bbb';g.fillRect(0,0,256,256);
+      g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';
+      g.drawImage(source,x-span/2,y-span/2,span,span,0,0,256,256);
+      tokens.push({
+        slot:tokens.length,row:r,column:c,localColor:seen.color?.id||null,localColorConfidence:+(seen.colorConfidence||0).toFixed(3),
+        localColorDistance:Number.isFinite(seen.color?.d)?+seen.color.d.toFixed(1):null,localColorMargin:Number.isFinite(seen.color?.margin)?+seen.color.margin.toFixed(1):null,
+        localColorCalibrated:!!seen.color?.calibrated,observedColor:compactRgb(seen.observedColor),possible:!seen.pawn,image:crop.toDataURL('image/jpeg',.94)
+      });
+    }
+    return tokens;
+  }finally{if(board)board.delete()}
+}
+async function requestAiVision(mode,image,tokens=[]){
+  let response;
+  try{
+    response=await fetch('/api/vision-scan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode,image,tokens,calibration:aiCalibrationContext()})});
+  }catch{
+    throw new Error('Server AI non raggiungibile. Apri lo scanner tramite ai-server.mjs.');
+  }
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(payload.error||`Server AI: HTTP ${response.status}`);
+  lastAiResult={mode,model:payload.model,result:payload.result,time:new Date().toISOString()};
+  return payload.result;
+}
+function calibratedColorMask(board){
+  const mask=cv.Mat.zeros(board.rows,board.cols,cv.CV_8UC1),refs=colorRefs();
+  const simpleRefs=refs.map(ref=>({...ref,samples:(ref.sampleRefs?.length?ref.sampleRefs:[ref.ref]).filter(Boolean)}));
+  for(let y=0;y<board.rows;y++)for(let x=0;x<board.cols;x++){
+    const i=(y*board.cols+x)*4,p={r:board.data[i],g:board.data[i+1],b:board.data[i+2]};
+    p.l=(p.r+p.g+p.b)/3;
+    const sat=Math.max(p.r,p.g,p.b)-Math.min(p.r,p.g,p.b);
+    if(sat<32||p.l<34||p.l>244)continue;
+    let best=Infinity;
+    for(const ref of simpleRefs)for(const sample of ref.samples)best=Math.min(best,colorDistance(p,sample));
+    const boardD=distanceFromBoardAt(p,x,y,board.cols,board.rows);
+    if(best<72&&(!boardCalibration||boardD>28))mask.data[y*board.cols+x]=255;
+  }
+  return mask;
+}
+function annulusColorProfile(board,{x,y,radius}){
+  const samples=[];
+  const step=Math.max(1,Math.round(radius/18));
+  for(let yy=Math.floor(y-radius);yy<=Math.ceil(y+radius);yy+=step)for(let xx=Math.floor(x-radius);xx<=Math.ceil(x+radius);xx+=step){
+    if(xx<0||yy<0||xx>=board.cols||yy>=board.rows)continue;
+    const rr=Math.hypot(xx-x,yy-y)/radius;
+    if(rr<.54||rr>.88)continue;
+    const i=(yy*board.cols+xx)*4,p={r:board.data[i],g:board.data[i+1],b:board.data[i+2]};
+    p.l=(p.r+p.g+p.b)/3;
+    const sat=Math.max(p.r,p.g,p.b)-Math.min(p.r,p.g,p.b);
+    if(sat>=24&&p.l>32&&p.l<246)samples.push(p);
+  }
+  if(samples.length<12)return {color:null,coverage:0,rgb:null};
+  const medianChannel=k=>quantile(samples.map(p=>p[k]).sort((a,b)=>a-b),.5);
+  const rgb={r:medianChannel('r'),g:medianChannel('g'),b:medianChannel('b'),l:medianChannel('l')};
+  const color=classifyTokenColor(rgb);
+  if(!color)return {color:null,coverage:0,rgb};
+  const refs=colorRefs().find(ref=>ref.id===color.id),colorSamples=(refs?.sampleRefs?.length?refs.sampleRefs:[refs?.ref]).filter(Boolean);
+  const coverage=samples.filter(p=>Math.min(...colorSamples.map(s=>colorDistance(p,s)))<78).length/samples.length;
+  const boardDistance=distanceFromBoardAt(rgb,x,y,board.cols,board.rows);
+  return {color,coverage,rgb,count:samples.length,boardDistance};
+}
+function loadBoardCalibration(){
+  try{return JSON.parse(localStorage.getItem(BOARD_CAL_KEY))||null}catch(e){return null}
+}
+function boardRefsAt(x,y,width=BOARD_SCAN_SIZE,height=BOARD_SCAN_SIZE){
+  if(!boardCalibration?.cells?.length)return [];
+  const c=Math.max(0,Math.min(N-1,Math.floor(x/width*N)));
+  const r=Math.max(0,Math.min(N-1,Math.floor(y/height*N)));
+  return boardCalibration.cells[r]?.[c]?.refs||[];
+}
+function distanceFromBoardAt(rgb,x,y,width,height){
+  const refs=boardRefsAt(x,y,width,height);
+  return refs.length?Math.min(...refs.map(ref=>Math.hypot(rgb.r-ref.r,rgb.g-ref.g,rgb.b-ref.b))):999;
+}
+function classifyShapeOnBoard(board,{x,y,radius}){
+  let mask=null,kernel=null,contours=null,hierarchy=null,bestContour=null,approx=null,fineApprox=null,hull=null;
+  try{
+    const n=96,center=(n-1)/2;
+    mask=cv.Mat.zeros(n,n,cv.CV_8UC1);
+    const ring=annulusColorProfile(board,{x,y,radius}),baseL=ring.rgb?.l||105;
+    const threshold=Math.max(145,Math.min(218,baseL+48));
+    for(let yy=0;yy<n;yy++)for(let xx=0;xx<n;xx++){
+      const nx=(xx-center)/center,ny=(yy-center)/center,rr=Math.hypot(nx,ny);
+      if(rr>.72)continue;
+      const sx=Math.round(x+nx*radius),sy=Math.round(y+ny*radius);
+      if(sx<0||sy<0||sx>=board.cols||sy>=board.rows)continue;
+      const i=(sy*board.cols+sx)*4,r=board.data[i],g=board.data[i+1],b=board.data[i+2];
+      const l=(r+g+b)/3,chroma=Math.max(r,g,b)-Math.min(r,g,b);
+      if(l>threshold&&r>138&&g>138&&b>138&&chroma<78)mask.data[yy*n+xx]=255;
+    }
+    kernel=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(3,3));
+    cv.morphologyEx(mask,mask,cv.MORPH_OPEN,kernel);
+    cv.morphologyEx(mask,mask,cv.MORPH_CLOSE,kernel);
+    contours=new cv.MatVector();hierarchy=new cv.Mat();
+    cv.findContours(mask,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+    let bestArea=0;
+    for(let i=0;i<contours.size();i++){
+      const cnt=contours.get(i),area=cv.contourArea(cnt),mom=cv.moments(cnt);
+      const cx=mom.m00?mom.m10/mom.m00:center,cy=mom.m00?mom.m01/mom.m00:center;
+      const central=Math.hypot(cx-center,cy-center)<n*.19;
+      if(central&&area>bestArea){if(bestContour)bestContour.delete();bestContour=cnt;bestArea=area}else cnt.delete();
+    }
+    if(!bestContour||bestArea<n*n*.018)return {id:null,score:0,ink:bestArea,top:[]};
+    const perimeter=cv.arcLength(bestContour,true);
+    approx=new cv.Mat();fineApprox=new cv.Mat();
+    cv.approxPolyDP(bestContour,approx,perimeter*.038,true);
+    cv.approxPolyDP(bestContour,fineApprox,perimeter*.018,true);
+    hull=new cv.Mat();cv.convexHull(bestContour,hull,false,true);
+    const hullArea=cv.contourArea(hull)||bestArea;
+    const vertices=approx.rows,fineVertices=fineApprox.rows,circularity=4*Math.PI*bestArea/(perimeter*perimeter||1),convex=cv.isContourConvex(approx),solidity=bestArea/hullArea;
+    const approxPoints=Array.from({length:vertices},(_,i)=>({x:approx.data32S[i*2],y:approx.data32S[i*2+1]}));
+    const edgeLengths=approxPoints.map((point,i)=>Math.hypot(point.x-approxPoints[(i+1)%vertices].x,point.y-approxPoints[(i+1)%vertices].y));
+    const edgeRatio=edgeLengths.length?Math.min(...edgeLengths)/Math.max(...edgeLengths):1;
+    let id=null,score=.55;
+    if(solidity<.86&&fineVertices>=8){id='croce';score=.94}
+    else if(vertices===3){id='triangolo';score=.94}
+    else if(vertices===4&&edgeRatio<.48){id='triangolo';score=.90}
+    else if(vertices===4){id='quadrato';score=.92}
+    else if(vertices===5||vertices===6&&fineVertices<=7){id='pentagono';score=.88}
+    else if(circularity>.72&&vertices>=6){id='cerchio';score=Math.min(.96,.62+circularity*.38)}
+    const matched=matchPrimitiveShape(bestContour);
+    if(matched.id==='cerchio'&&fineVertices>=8&&circularity>.78){id='cerchio';score=Math.max(score,matched.score)}
+    const strongGeometry=id==='croce'||id==='triangolo'||id==='quadrato'&&solidity>.90||id==='cerchio'&&circularity>.80;
+    if(matched.id&&(!id||matched.id===id||!strongGeometry&&matched.margin>.075)){
+      id=matched.id;
+      score=Math.max(score,matched.score);
+    }
+    const top=matched.top.length?matched.top:(id?[{id,score,vertices,circularity:+circularity.toFixed(3),convex}]:[]);
+    const confidence=Math.max(0,Math.min(.98,score-(matched.id&&matched.id!==id?.06:0)));
+    return {id,score,confidence,ink:Math.round(bestArea),top,vertices,fineVertices,circularity,convex,solidity,edgeRatio,matchMargin:matched.margin||0,threshold};
+  }catch(error){
+    console.warn('Shape classifier',error);return {id:null,score:0,ink:0,top:[]};
+  }finally{
+    for(const item of [mask,kernel,contours,hierarchy,bestContour,approx,fineApprox,hull])if(item)try{item.delete()}catch(e){}
+  }
+}
+function cvShapeTemplates(){
+  if(cvShapeTemplatesCache)return cvShapeTemplatesCache;
+  cvShapeTemplatesCache=[];
+  for(const shape of MARKER_SHAPES){
+    const canvas=document.createElement('canvas');canvas.width=canvas.height=100;
+    const g=canvas.getContext('2d');g.fillStyle='#fff';
+    for(const d of pathDs(shape.svg))g.fill(new Path2D(d));
+    let src=null,gray=null,binary=null,contours=null,hierarchy=null,best=null;
+    try{
+      src=cv.imread(canvas);gray=new cv.Mat();binary=new cv.Mat();
+      cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);cv.threshold(gray,binary,127,255,cv.THRESH_BINARY);
+      contours=new cv.MatVector();hierarchy=new cv.Mat();cv.findContours(binary,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+      let area=0;
+      for(let i=0;i<contours.size();i++){
+        const cnt=contours.get(i),next=cv.contourArea(cnt);
+        if(next>area){if(best)best.delete();best=cnt;area=next}else cnt.delete();
+      }
+      if(best){cvShapeTemplatesCache.push({id:shape.id,contour:best});best=null}
+    }finally{
+      for(const item of [src,gray,binary,contours,hierarchy,best])if(item)try{item.delete()}catch(e){}
+    }
+  }
+  return cvShapeTemplatesCache;
+}
+function matchPrimitiveShape(contour){
+  const values=cvShapeTemplates().map(template=>({id:template.id,d:cv.matchShapes(contour,template.contour,cv.CONTOURS_MATCH_I1,0)})).sort((a,b)=>a.d-b.d);
+  if(!values.length||!Number.isFinite(values[0].d)||values[0].d>.75)return {id:null,score:0,margin:0,top:[]};
+  const best=values[0],second=values[1],margin=second?second.d-best.d:1;
+  const score=Math.max(.45,Math.min(.98,1/(1+best.d*4)));
+  return {id:best.id,score,margin,top:values.slice(0,5).map(item=>({id:item.id,score:+(1/(1+item.d*4)).toFixed(3),distance:+item.d.toFixed(4)}))};
+}
+function globalPawnDebug(pawn,shape,center){
+  const rgb=pawn.profile.rgb||{r:0,g:0,b:0,l:0};
+  return {detector:pawn.source,coverage:pawn.profile.coverage,shape:shape.id||null,shapeConfidence:shape.confidence||0,matchMargin:shape.matchMargin||0,vertices:shape.vertices||0,fineVertices:shape.fineVertices||0,circularity:shape.circularity||0,solidity:shape.solidity||0,edgeRatio:shape.edgeRatio??1,
+    delta:0,innerRange:0,ringDark:0,sectors:0,ringRatio:0,center,coreCount:pawn.profile.count||0,innerSat:Math.max(rgb.r,rgb.g,rgb.b)-Math.min(rgb.r,rgb.g,rgb.b),tokenSat:0,fillScore:0,
+    innerL:rgb.l,outerL:rgb.l,innerRgb:rgb,outerRgb:rgb,tokenRgb:rgb,plausibleRing:false,coloredCore:true,brightMark:true,colorBlob:true};
 }
 function tokenColorAt(r,c,center={x:0,y:0}){
   const pts=[];
@@ -664,12 +1106,12 @@ function loadColorCalibration(){
 function bestIconHit(r,c,color,center={x:0,y:0},terrainColor=false){
   const colorHit=classifyTokenImageAt(r,c,color,center,false);
   const iconHit=classifyIconAt(r,c,color,center,false);
-  let hit=(colorHit.id&&colorHit.score>=.62)?colorHit:iconHit;
+  let hit=iconHit.id?iconHit:((colorHit.id&&colorHit.score>=.72)?colorHit:iconHit);
   hit.colorTop=colorHit.top||[];
   if(hit.id&&hit.score>=(terrainColor ? .66 : .40))return hit;
   const anyColorHit=classifyTokenImageAt(r,c,color,center,true);
   const anyIconHit=classifyIconAt(r,c,color,center,true);
-  const fallback=(anyColorHit.id&&anyColorHit.score>=.66)?anyColorHit:anyIconHit;
+  const fallback=anyIconHit.id?anyIconHit:((anyColorHit.id&&anyColorHit.score>=.76)?anyColorHit:anyIconHit);
   const strongFallback=fallback.id&&fallback.score>Math.max(hit.score||0,terrainColor ? .66 : .48);
   if(strongFallback){
     fallback.colorMismatch=true;
@@ -745,19 +1187,27 @@ function hexRgb(hex){
   const n=parseInt(hex.slice(1),16);return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};
 }
 function capturedIconMask(r,c,center={x:0,y:0},tokenRgb=null){
-  const n=ICON_MATCH_SIZE, values=[];
-  const baseL=tokenRgb?tokenRgb.l:130;
-  const colorDist=p=>tokenRgb?Math.hypot(p.r-tokenRgb.r,p.g-tokenRgb.g,p.b-tokenRgb.b):80;
+  const n=ICON_MATCH_SIZE, pixels=[];
   for(let y=0;y<n;y++)for(let x=0;x<n;x++){
-    const ox=-.245+(x+.5)*.49/n, oy=-.245+(y+.5)*.49/n;
+    const ox=-.30+(x+.5)*.60/n, oy=-.30+(y+.5)*.60/n;
     const p=sampleAtCell(r,c,center.x+ox,center.y+oy);
-    const chroma=Math.max(p.r,p.g,p.b)-Math.min(p.r,p.g,p.b);
     const radial=Math.hypot(ox,oy);
-    const white=radial<.245&&p.l>Math.max(178,baseL+38)&&p.r>168&&p.g>168&&p.b>168&&chroma<62&&colorDist(p)>64;
-    values.push(white?1:0);
+    pixels.push({...p,radial});
   }
+  const lights=pixels.filter(p=>p.radial<.285).map(p=>p.l).sort((a,b)=>a-b);
+  const med=quantile(lights,.50), high=quantile(lights,.86);
+  const baseL=tokenRgb?tokenRgb.l:med;
+  const colorDist=p=>tokenRgb?Math.hypot(p.r-tokenRgb.r,p.g-tokenRgb.g,p.b-tokenRgb.b):90;
+  // White ink must be clearly brighter than the coloured marker.  The cap prevents
+  // a bright board square at the edge of the sample from hiding the white symbol.
+  const threshold=Math.max(150,Math.min(205,med+30),Math.min(210,high-12),baseL+28);
+  const values=pixels.map(p=>{
+    const chroma=Math.max(p.r,p.g,p.b)-Math.min(p.r,p.g,p.b);
+    const white=p.radial<.285&&p.l>threshold&&p.r>145&&p.g>145&&p.b>145&&chroma<84&&colorDist(p)>48;
+    return white?1:0;
+  });
   const cleaned=cleanMask(values,n);
-  return {mask:cleaned,ink:cleaned.reduce((a,b)=>a+b,0)};
+  return {mask:cleaned,ink:cleaned.reduce((a,b)=>a+b,0),threshold:+threshold.toFixed(1),med:+med.toFixed(1),high:+high.toFixed(1)};
 }
 function cleanMask(mask,n){
   const out=mask.slice();
@@ -769,14 +1219,15 @@ function cleanMask(mask,n){
   return out;
 }
 function classifyIconAt(r,c,color,center={x:0,y:0},allCandidates=false){
-  const captured=capturedIconMask(r,c,center,boardVision?.[r]?.[c]?.observedColor||boardVision?.[r]?.[c]?.debug?.tokenRgb);
+  const localBase=boardVision?.[r]?.[c]?.debug?.tokenRgb||tokenBaseForColor(color);
+  const captured=capturedIconMask(r,c,center,localBase);
   const vec=captured.mask, ink=captured.ink;
   if(ink<22||ink>650)return {id:null,score:0,top:[],ink};
   let best=null, second=null, all=[];
   for(const t of iconCandidatesForColor(color,allCandidates)){
     let score=0;
     for(const tv of t.variants){
-      score=Math.max(score,maskScore(vec,tv));
+      score=Math.max(score,maskScoreWithShift(vec,tv));
     }
     let colorScore=0;
     if(color){
@@ -796,6 +1247,13 @@ function classifyIconAt(r,c,color,center={x:0,y:0},allCandidates=false){
   if(second&&margin<.045&&!colorBacked)return {id:null,score:best.score,top:all.slice(0,4),ink};
   return best;
 }
+function tokenBaseForColor(color){
+  if(!color)return null;
+  if(color.ref)return color.ref;
+  const refs=colorRefs();
+  const ref=refs.find(r=>r.id===color.id||r.hex===color.hex);
+  return ref?.ref||ref?.sampleRefs?.[0]||null;
+}
 function maskScore(a,b){
   let inter=0, union=0, dot=0, aa=0, bb=0;
   for(let i=0;i<a.length;i++){
@@ -808,6 +1266,21 @@ function maskScore(a,b){
   const base=j*.58+cos*.42;
   const cvScore=opencvMaskScore(a,b);
   return cvScore==null?base:Math.max(base,cvScore);
+}
+function maskScoreWithShift(a,b){
+  let best=0;
+  for(const dy of [-2,-1,0,1,2])for(const dx of [-2,-1,0,1,2]){
+    best=Math.max(best,maskScore(a,shiftMask(b,dx,dy)));
+  }
+  return best;
+}
+function shiftMask(mask,dx,dy){
+  const n=ICON_MATCH_SIZE, out=Array(n*n).fill(0);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const sx=x-dx,sy=y-dy;
+    if(sx>=0&&sx<n&&sy>=0&&sy<n)out[y*n+x]=mask[sy*n+sx];
+  }
+  return out;
 }
 function opencvMaskScore(a,b){
   if(!window.asmaCvReady||!window.cv)return null;
@@ -914,9 +1387,23 @@ function terrainAt(r,c){
 }
 function scan(silent=false){
   if(corners.length!==4){if(!silent)setStatus('Non vedo ancora la scacchiera intera.');return false}
-  ord=0;lastGrid=Array.from({length:N},()=>Array(N).fill(null));
+  if(!window.asmaCvReady||!window.cv){setStatus('OpenCV.js non è ancora pronto. Attendi qualche secondo e riprova.');return false}
   const samples=Array.from({length:N},(_,r)=>Array.from({length:N},(_,c)=>sampleCell(r,c,.24)));
   boardVision=buildBoardVision(samples);
+  if(!boardVision){
+    setStatus(`Rilevatore globale non disponibile${lastGlobalDetectorError?`: ${lastGlobalDetectorError}`:'.'}`);
+    return false;
+  }
+  buildGridFromVision();
+  renderPreview();
+  const found=boardVision.flat().filter(cell=>cell.pawn).length;
+  const uncertain=boardVision.flat().filter(cell=>derivedReviewReasons(cell).length).length;
+  if(!silent)setStatus(`Rilevatore globale: ${found} pedine trovate${uncertain?`, ${uncertain} celle da controllare`:''}. Controlla anteprima, poi invia alla mappa.`);
+  else setStatus(`Rilevatore globale: ${found} pedine trovate${uncertain?`, ${uncertain} celle da controllare`:''}.`);
+  return true;
+}
+function buildGridFromVision(){
+  ord=0;lastGrid=Array.from({length:N},()=>Array(N).fill(null));
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){
     const seen=boardVision[r][c];
     if(seen.pawn){
@@ -930,10 +1417,238 @@ function scan(silent=false){
       if(terrain){lastGrid[r][c]={kind:'terrain',terrain};continue}
     }
   }
-  renderPreview();
-  if(!silent)setStatus('Scacchiera letta. Controlla anteprima, poi invia alla mappa.');
-  else setStatus('Scacchiera letta dalla griglia corrente.');
-  return true;
+}
+async function scanStable(){
+  if(staticFrame)return scan(false);
+  const button=document.getElementById('scan'),visions=[];
+  button.disabled=true;
+  try{
+    for(let pass=0;pass<3;pass++){
+      setStatus(`Stabilizzazione lettura ${pass+1}/3...`);
+      if(!scan(true))return false;
+      visions.push(structuredClone(boardVision));
+      if(pass<2)await new Promise(resolve=>setTimeout(resolve,160));
+    }
+    boardVision=aggregateVisions(visions);
+    buildGridFromVision();renderPreview();
+    const found=boardVision.flat().filter(cell=>cell.pawn).length;
+    const uncertain=boardVision.flat().filter(cell=>derivedReviewReasons(cell).length).length;
+    setStatus(`Lettura stabilizzata su 3 fotogrammi: ${found} pedine trovate${uncertain?`, ${uncertain} celle dubbie`:''}.`);
+    return true;
+  }finally{button.disabled=false}
+}
+function aggregateVisions(visions){
+  const out=emptyVision(),needed=Math.floor(visions.length/2)+1;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const all=visions.map(vision=>vision[r][c]);
+    out[r][c].dark=all.filter(cell=>cell.dark).length>=needed;
+    const pawns=all.filter(cell=>cell.pawn);
+    if(pawns.length<needed){
+      const candidates=all.filter(cell=>cell.pawn||cell.possiblePawn);
+      if(candidates.length>=needed){
+        const selected=candidates.sort((a,b)=>(b.presenceConfidence||0)-(a.presenceConfidence||0))[0];
+        Object.assign(out[r][c],selected,{dark:out[r][c].dark,pawn:false,possiblePawn:true,cat:null,reviewReasons:['presenza']});
+        out[r][c].presenceReason='candidato-consenso-3-frame';
+        out[r][c].presenceConfidence=candidates.reduce((sum,cell)=>sum+(cell.presenceConfidence||0),0)/candidates.length;
+      }
+      continue;
+    }
+    const labels=new Map();
+    for(const pawn of pawns){
+      const key=pawn.cat||`color:${pawn.color?.id||'unknown'}`;
+      const item=labels.get(key)||{count:0,total:0};
+      item.count++;item.total+=pawn.shapeConfidence||pawn.score||0;labels.set(key,item);
+    }
+    const winner=[...labels.entries()].sort((a,b)=>b[1].count-a[1].count||b[1].total-a[1].total)[0]?.[0];
+    const matching=pawns.filter(pawn=>(pawn.cat||`color:${pawn.color?.id||'unknown'}`)===winner);
+    const selected=(matching.length?matching:pawns).sort((a,b)=>(b.score||0)-(a.score||0))[0];
+    Object.assign(out[r][c],selected,{dark:out[r][c].dark});
+    out[r][c].presenceReason='consenso-3-frame';
+    out[r][c].presenceConfidence=pawns.length/visions.length;
+    out[r][c].shapeConfidence=matching.length?matching.reduce((sum,pawn)=>sum+(pawn.shapeConfidence||0),0)/matching.length:0;
+    if(out[r][c].cat)out[r][c].score=out[r][c].shapeConfidence;
+    if(out[r][c].debug)out[r][c].debug={...out[r][c].debug,presenceVotes:pawns.length,shapeVotes:labels.get(winner)?.count||0};
+  }
+  return out;
+}
+function markerColorById(id){return MARKER_COLORS.find(color=>color.id===id)||null}
+function markerShapeFromCat(cat){return MARKER_SHAPES.find(shape=>cat?.endsWith(`-${shape.id}`))?.id||null}
+function aiColorValue(color){
+  return {id:color.id,hex:color.hex,d:0,kind:'place',cat:null,terrain:null,margin:999,confident:true,second:null,ai:true};
+}
+function clearPawnDetection(seen){
+  seen.pawn=false;seen.possiblePawn=false;seen.cat=null;seen.terrain=null;seen.jolly=null;seen.color=null;seen.observedColor=null;
+  seen.score=0;seen.presenceConfidence=0;seen.colorConfidence=0;seen.shapeConfidence=0;seen.top=[];seen.colorTop=[];seen.reviewReasons=[];seen.colorDisagreement=null;
+}
+function derivedReviewReasons(seen){
+  if(Array.isArray(seen.reviewReasons))return seen.reviewReasons;
+  if(seen.possiblePawn&&!seen.pawn)return ['presenza'];
+  if(!seen.pawn)return [];
+  const reasons=[];
+  if((seen.presenceConfidence||0)<.90)reasons.push('presenza');
+  if(!seen.color||(seen.colorConfidence||0)<.90)reasons.push('colore');
+  if(!seen.cat||(seen.shapeConfidence||0)<.90)reasons.push('forma');
+  return reasons;
+}
+function applyAiClassification(seen,item,{crop=false,allowAdd=false}={}){
+  const hasPresenceDecision=typeof item.present==='boolean';
+  const present=hasPresenceDecision?item.present:true;
+  const rawPresence=Number(item.presence_confidence);
+  const presence=Number.isFinite(rawPresence)?rawPresence:(present?1:0);
+  const aiColor=markerColorById(item.color),shape=MARKER_SHAPES.some(candidate=>candidate.id===item.shape)?item.shape:null;
+  const colorConfidence=Number(item.color_confidence)||0,shapeConfidence=Number(item.shape_confidence)||0;
+  const aiRecord={source:crop?'ritaglio':'scacchiera',present,presence:+presence.toFixed(3),color:item.color,colorConfidence:+colorConfidence.toFixed(3),shape:item.shape,shapeConfidence:+shapeConfidence.toFixed(3)};
+  if(crop&&!present){
+    if(presence>=.72){clearPawnDetection(seen);seen.ai=aiRecord;return 'removed'}
+    seen.reviewReasons=['presenza'];seen.ai=aiRecord;return 'uncertain';
+  }
+  if(!seen.pawn){
+    if(!allowAdd||!present||presence<.78){
+      if(seen.possiblePawn)seen.reviewReasons=['presenza'];
+      seen.ai=aiRecord;
+      return seen.possiblePawn?'uncertain':'ignored';
+    }
+    seen.pawn=true;seen.possiblePawn=false;seen.presenceReason='ai';seen.presenceConfidence=presence;seen.score=presence;
+  }
+  const localColor=markerColorById(seen.color?.id);
+  const localColorConfidence=seen.colorConfidence||0;
+  const localColorCalibrated=!!seen.color?.calibrated;
+  const localColorUncertain=!localColor||localColorConfidence<.90||seen.color?.confident===false||(seen.color?.margin??999)<9;
+  let chosenColor=localColor,colorCorrected=false,colorConflict=false;
+  if(aiColor&&colorConfidence>=.68){
+    if(!localColor){
+      chosenColor=aiColor;seen.color=aiColorValue(aiColor);seen.colorConfidence=colorConfidence;
+    }else if(aiColor.id===localColor.id){
+      chosenColor=localColor;seen.colorConfidence=Math.max(localColorConfidence,colorConfidence);seen.colorDisagreement=null;
+    }else if(!localColorCalibrated&&localColorUncertain&&colorConfidence>=.82){
+      chosenColor=aiColor;seen.color=aiColorValue(aiColor);seen.colorConfidence=colorConfidence;colorCorrected=true;
+      seen.colorDisagreement=null;
+    }else{
+      colorConflict=true;
+      seen.colorDisagreement={local:localColor.id,ai:aiColor.id,localConfidence:+localColorConfidence.toFixed(3),aiConfidence:+colorConfidence.toFixed(3),calibrated:localColorCalibrated};
+    }
+  }
+  const localShape=markerShapeFromCat(seen.cat),localShapeConfidence=seen.shapeConfidence||seen.debug?.shapeConfidence||0;
+  if(colorCorrected&&localShape)seen.cat=`${chosenColor.id}-${localShape}`;
+  const geometrySuspicious=localShape==='quadrato'&&(seen.debug?.solidity||1)<.90;
+  const localUncertain=!localShape||(seen.debug?.shapeVotes!=null&&seen.debug.shapeVotes<2)||localShapeConfidence<.86||(seen.debug?.matchMargin||0)<.025||geometrySuspicious;
+  let action=seen.presenceReason==='ai'?'added':'checked';
+  if(shape&&chosenColor&&shapeConfidence>=(crop?.58:.62)){
+    const nextCat=`${chosenColor.id}-${shape}`;
+    if(!localShape){seen.cat=nextCat;seen.shapeConfidence=shapeConfidence;seen.score=shapeConfidence;if(action!=='added')action='completed'}
+    else if(localShape!==shape){
+      const strongerCrop=crop&&shapeConfidence>=.93&&shapeConfidence>localShapeConfidence+.015;
+      if(shapeConfidence>=(crop?.86:.88)&&(localUncertain||strongerCrop)){
+        seen.cat=nextCat;seen.shapeConfidence=shapeConfidence;seen.score=shapeConfidence;action='corrected';
+      }
+    }else seen.shapeConfidence=Math.max(localShapeConfidence,shapeConfidence);
+  }
+  if(colorCorrected&&action==='checked')action='color-corrected';
+  const reasons=[];
+  if(presence<.90)reasons.push('presenza');
+  if(colorConflict||!seen.color||(seen.colorConfidence||0)<.90)reasons.push('colore');
+  if(!seen.cat||(seen.shapeConfidence||0)<.90)reasons.push('forma');
+  seen.reviewReasons=reasons;
+  seen.ai=aiRecord;
+  if(reasons.length&&action==='checked')action='uncertain';
+  return action;
+}
+function mergeAiBoard(result,tokenMeta=[]){
+  const reported=Array.isArray(result?.cells)?result.cells:[];
+  const cells=new Map();
+  for(const item of reported){
+    const r=Number(item.row),c=Number(item.column),confidence=Number(item.presence_confidence)||0;
+    if(!Number.isInteger(r)||!Number.isInteger(c)||r<0||r>=N||c<0||c>=N)continue;
+    const key=`${r},${c}`,previous=cells.get(key);
+    if(!previous||confidence>(Number(previous.presence_confidence)||0))cells.set(key,item);
+  }
+  let added=0,removed=0,completed=0,corrected=0,colorCorrected=0,uncertain=0,ignored=0,checked=0;
+  const countAction=action=>{
+    if(action==='added')added++;else if(action==='removed')removed++;else if(action==='completed')completed++;else if(action==='corrected')corrected++;else if(action==='color-corrected')colorCorrected++;else if(action==='uncertain')uncertain++;else if(action==='ignored')ignored++;else checked++;
+  };
+  for(const item of cells.values()){
+    const action=applyAiClassification(boardVision[item.row][item.column],item,{allowAdd:true});
+    countAction(action);
+  }
+  const metadata=new Map(tokenMeta.map(token=>[Number(token.slot),token]));
+  const returned=new Set();
+  for(const item of Array.isArray(result?.tokens)?result.tokens:[]){
+    const meta=metadata.get(Number(item.slot));
+    if(!meta)continue;
+    returned.add(Number(item.slot));
+    const action=applyAiClassification(boardVision[meta.row][meta.column],item,{crop:true,allowAdd:!!meta.possible});
+    countAction(action);
+  }
+  for(const [slot,meta] of metadata){
+    if(returned.has(slot))continue;
+    const seen=boardVision[meta.row][meta.column];
+    seen.reviewReasons=[...new Set([...derivedReviewReasons(seen),'risposta AI mancante'])];
+    uncertain++;
+  }
+  buildGridFromVision();renderPreview();
+  return {reported:cells.size,tokens:metadata.size,added,removed,completed,corrected,colorCorrected,uncertain,ignored,checked};
+}
+async function verifyUncertainWithAi(){
+  const tokens=aiTokenCrops(.90);
+  if(!tokens.length){
+    const found=boardVision.flat().filter(cell=>cell.pawn).length;
+    setStatus(`Lettura completata: ${found} pedine, tutte con confidenza almeno 0,90.`);
+    return true;
+  }
+  const button=document.getElementById('scan');button.disabled=true;
+  try{
+    setStatus(`Controllo AI automatico su ${tokens.length} celle dubbie...`);
+    const result=await requestAiVision('board',rectifiedBoardImage(),tokens);
+    const merged=mergeAiBoard({cells:[],tokens:result.tokens||[]},tokens);
+    setStatus(`AI: ${merged.removed} falsi positivi rimossi, ${merged.added} pedine recuperate, ${merged.colorCorrected} colori corretti, ${merged.completed} forme completate, ${merged.corrected} forme corrette, ${merged.uncertain} celle ancora dubbie.`);
+    return true;
+  }catch(error){
+    setStatus(`Lettura locale completata; controllo AI automatico non riuscito: ${error?.message||error}`);
+    return false;
+  }finally{button.disabled=false}
+}
+async function scanWithAutomaticAi(){
+  const ok=staticFrame?scan(false):await scanStable();
+  if(!ok)return false;
+  if(!document.getElementById('autoAi').checked)return true;
+  return verifyUncertainWithAi();
+}
+async function verifyWithAi(){
+  if(corners.length!==4){setStatus('Prima rileva o imposta i bordi della scacchiera.');return}
+  const button=document.getElementById('aiScan');button.disabled=true;
+  try{
+    setStatus('Lettura locale prima del controllo AI...');
+    const ok=staticFrame?scan(true):await scanStable();
+    if(!ok)return;
+    setStatus('L AI sta controllando presenza, colori e forme...');
+    const tokens=aiTokenCrops();
+    const result=await requestAiVision('board',rectifiedBoardImage(),tokens);
+    const merged=mergeAiBoard(result,tokens);
+    setStatus(`AI completata: ${merged.removed} falsi positivi rimossi, ${merged.added} aggiunte, ${merged.colorCorrected} colori corretti, ${merged.completed} forme completate, ${merged.corrected} forme corrette, ${merged.uncertain} celle dubbie.`);
+  }catch(error){setStatus(`Controllo AI fallito: ${error?.message||error}`)}
+  finally{button.disabled=false}
+}
+function aiPoint(point,width,height){return {x:Number(point?.x)*width/1000,y:Number(point?.y)*height/1000}}
+function validAiCorners(points,width,height){
+  if(points.some(point=>!Number.isFinite(point.x)||!Number.isFinite(point.y)))return false;
+  if(points.some(point=>point.x<0||point.y<0||point.x>width||point.y>height))return false;
+  const area=Math.abs(polyAreaVideo(points));
+  const edges=points.map((point,i)=>Math.hypot(point.x-points[(i+1)%4].x,point.y-points[(i+1)%4].y));
+  return area>width*height*.045&&Math.min(...edges)>Math.min(width,height)*.12;
+}
+async function proposeAiCorners(){
+  if(!rawCanvas.width||!rawCanvas.height){setStatus('Avvia prima la camera.');return}
+  const button=document.getElementById('aiCorners');button.disabled=true;
+  try{
+    setStatus('L AI sta cercando il bordo interno degli 8x8 quadrati...');
+    const result=await requestAiVision('corners',rawCanvas.toDataURL('image/jpeg',.90));
+    const points=[result.top_left,result.top_right,result.bottom_right,result.bottom_left].map(point=>aiPoint(point,rawCanvas.width,rawCanvas.height));
+    if((Number(result.confidence)||0)<.5||!validAiCorners(points,rawCanvas.width,rawCanvas.height))throw new Error('proposta geometrica non abbastanza affidabile');
+    corners=points;trackQuality=Math.min(.9,Number(result.confidence)||.5);manualMode=false;
+    document.getElementById('manual').classList.remove('active');
+    setStatus(`Bordi AI proposti (${Math.round(trackQuality*100)}%). Trascina i quattro punti se serve, poi rileva le pedine.`);
+  }catch(error){setStatus(`Ricerca bordi AI fallita: ${error?.message||error}`)}
+  finally{button.disabled=false}
 }
 function renderPreview(){
   preview.innerHTML='';
@@ -942,6 +1657,7 @@ function renderPreview(){
     const d=document.createElement('div'), v=lastGrid[r][c];d.className='cell';
     const seen=boardVision[r][c];
     const dbg=seen.debug;
+    const review=derivedReviewReasons(seen);
     if(dbg)d.title=`r${r+1} c${c+1} ring ${dbg.ringDark}/${dbg.sectors} fill ${dbg.fillScore} delta ${dbg.delta.toFixed(1)} range ${dbg.innerRange.toFixed(1)} inner ${dbg.innerL.toFixed(1)} outer ${dbg.outerL.toFixed(1)} score ${seen.score?seen.score.toFixed(2):'-'}`;
     if(seen.dark)d.classList.add('board-dark');
     if(v&&v.kind==='terrain'){d.classList.add(v.terrain);d.innerHTML=`<div class="mini-token" style="background:${v.terrain==='water'?'#006cb6':'#5c8e24'}"><span>${v.terrain==='water'?'WA':'RI'}</span></div>`}
@@ -957,29 +1673,50 @@ function renderPreview(){
       const bg=seen.color?.hex||'#e44', label=seen.color?.id?.slice(0,3)||'?';
       d.innerHTML+=`<div class="mini-token" style="background:${bg}"><span>${label}</span></div>`;
     }
-    if(seen.pawn||seen.cat||v){
+    if(seen.ai)d.innerHTML+=`<span class="ai-badge">AI</span>`;
+    if(review.length){
+      d.classList.add('needs-review');
+      d.innerHTML+=`<span class="review-badge" title="Da controllare: ${review.join(', ')}">!</span>`;
+    }
+    if(seen.pawn||seen.possiblePawn||seen.cat||v){
       lastDebug.push({
-        cell:[r,c],value:v||null,pawn:seen.pawn,presenceReason:seen.presenceReason,cat:seen.cat,terrain:seen.terrain,jolly:seen.jolly,score:+(seen.score||0).toFixed(3),
+        cell:[r,c],value:v||null,pawn:seen.pawn,possiblePawn:!!seen.possiblePawn,review,colorDisagreement:seen.colorDisagreement||null,presenceReason:seen.presenceReason,cat:seen.cat,terrain:seen.terrain,jolly:seen.jolly,score:+(seen.score||0).toFixed(3),presenceConfidence:+(seen.presenceConfidence||0).toFixed(3),colorConfidence:+(seen.colorConfidence||0).toFixed(3),shapeConfidence:+(seen.shapeConfidence||0).toFixed(3),
         color:seen.color?{id:seen.color.id,kind:seen.color.kind,cat:seen.color.cat,terrain:seen.color.terrain,d:+seen.color.d.toFixed(1),hex:seen.color.hex,margin:+seen.color.margin.toFixed(1),confident:seen.color.confident,second:seen.color.second}:null,
-        observedColor:compactRgb(seen.observedColor),colorMismatch:!!seen.colorMismatch,code:seen.code||null,top:seen.top||[],colorTop:seen.colorTop||[],debug:roundedDebug(dbg)
+        observedColor:compactRgb(seen.observedColor),colorMismatch:!!seen.colorMismatch,code:seen.code||null,top:seen.top||[],colorTop:seen.colorTop||[],ai:seen.ai||null,debug:roundedDebug(dbg)
       });
     }
     preview.appendChild(d);
   }
   renderDebug();
+  renderReviewSummary();
+}
+function renderReviewSummary(){
+  const items=[];
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const reasons=derivedReviewReasons(boardVision[r][c]);
+    if(reasons.length){
+      const disagreement=boardVision[r][c].colorDisagreement;
+      const detail=disagreement?` (locale ${disagreement.local}, AI ${disagreement.ai})`:'';
+      items.push(`r${r+1} c${c+1}: ${reasons.join(', ')}${detail}`);
+    }
+  }
+  reviewSummary.innerHTML=items.length?`<div class="review-summary"><b>${items.length} celle da controllare</b><br>${items.join(' · ')}</div>`:'';
 }
 function renderDebug(){
   debugEl.innerHTML=lastDebug.map(d=>{
     const top=(d.top||[]).map(t=>`${t.id}:${t.score.toFixed(2)}${t.shape!=null?` s${t.shape} c${t.color}`:''}`).join(' ');
     const sw=d.color?`<span class="sw" style="background:${d.color.hex}"></span>${d.color.id} (${d.color.d})`:'colore -';
-    const dbg=d.debug?`Δ ${d.debug.delta} · rng ${d.debug.innerRange} · in ${d.debug.innerL} · out ${d.debug.outerL}`:'';
-    return `<div class="dbg"><b>r${d.cell[0]+1} c${d.cell[1]+1} ${d.cat||d.terrain||d.value?.cat||d.value?.terrain||'?'}</b><div>${sw}</div><div>score ${d.score||'-'}</div><div>${top||'top -'}</div><div>${dbg}</div></div>`;
+    const dbg=d.debug?.detector?`${d.debug.detector} · corona ${Math.round((d.debug.coverage||0)*100)}% · forma ${d.debug.shape||'-'} · vertici ${d.debug.vertices||0}`:
+      d.debug?`Δ ${d.debug.delta} · rng ${d.debug.innerRange} · in ${d.debug.innerL} · out ${d.debug.outerL}`:'';
+    const ai=d.ai?`AI ${d.ai.present?'presente':'assente'} ${(d.ai.presence||0).toFixed(2)} · ${d.ai.color} ${(d.ai.colorConfidence||0).toFixed(2)} · ${d.ai.shape} ${(d.ai.shapeConfidence||0).toFixed(2)}`:'';
+    return `<div class="dbg"><b>r${d.cell[0]+1} c${d.cell[1]+1} ${d.cat||d.terrain||d.value?.cat||d.value?.terrain||'?'}</b><div>${sw}</div><div>presenza ${d.presenceConfidence||'-'} / colore ${d.colorConfidence||'-'} / forma ${d.shapeConfidence||'-'}</div><div>${top||'top -'}</div><div>${dbg}</div><div>${ai}</div></div>`;
   }).join('');
 }
 function roundedDebug(dbg){
   if(!dbg)return null;
   const rgb=o=>o?{r:+o.r.toFixed(1),g:+o.g.toFixed(1),b:+o.b.toFixed(1),l:+o.l.toFixed(1)}:null;
   return {
+    detector:dbg.detector||null,coverage:+(dbg.coverage||0).toFixed(3),shape:dbg.shape||null,shapeConfidence:+(dbg.shapeConfidence||0).toFixed(3),matchMargin:+(dbg.matchMargin||0).toFixed(4),vertices:dbg.vertices||0,fineVertices:dbg.fineVertices||0,circularity:+(dbg.circularity||0).toFixed(3),solidity:+(dbg.solidity||0).toFixed(3),edgeRatio:+(dbg.edgeRatio??1).toFixed(3),
     delta:+dbg.delta.toFixed(1),innerRange:+dbg.innerRange.toFixed(1),
     ringDark:dbg.ringDark,sectors:dbg.sectors,ringRatio:+dbg.ringRatio.toFixed(2),
     center:dbg.center,coreCount:dbg.coreCount||0,innerSat:+dbg.innerSat.toFixed(1),tokenSat:+dbg.tokenSat.toFixed(1),fillScore:dbg.fillScore,
@@ -992,9 +1729,9 @@ function allCellDebug(){
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){
     const seen=boardVision[r][c]||{};
     out.push({
-      cell:[r,c],pawn:!!seen.pawn,presenceReason:seen.presenceReason,cat:seen.cat||null,terrain:seen.terrain||null,jolly:seen.jolly,score:+(seen.score||0).toFixed(3),
+      cell:[r,c],pawn:!!seen.pawn,possiblePawn:!!seen.possiblePawn,review:derivedReviewReasons(seen),colorDisagreement:seen.colorDisagreement||null,presenceReason:seen.presenceReason,cat:seen.cat||null,terrain:seen.terrain||null,jolly:seen.jolly,score:+(seen.score||0).toFixed(3),presenceConfidence:+(seen.presenceConfidence||0).toFixed(3),colorConfidence:+(seen.colorConfidence||0).toFixed(3),shapeConfidence:+(seen.shapeConfidence||0).toFixed(3),
       color:seen.color?{id:seen.color.id,kind:seen.color.kind,cat:seen.color.cat,terrain:seen.color.terrain,d:+seen.color.d.toFixed(1),hex:seen.color.hex,margin:+seen.color.margin.toFixed(1),confident:seen.color.confident,second:seen.color.second}:null,
-      observedColor:compactRgb(seen.observedColor),colorMismatch:!!seen.colorMismatch,code:seen.code||null,top:seen.top||[],colorTop:seen.colorTop||[],debug:roundedDebug(seen.debug)
+      observedColor:compactRgb(seen.observedColor),colorMismatch:!!seen.colorMismatch,code:seen.code||null,top:seen.top||[],colorTop:seen.colorTop||[],ai:seen.ai||null,debug:roundedDebug(seen.debug)
     });
   }
   return out;
@@ -1002,18 +1739,48 @@ function allCellDebug(){
 function compactRgb(o){
   return o?{r:+o.r.toFixed(1),g:+o.g.toFixed(1),b:+o.b.toFixed(1),l:+o.l.toFixed(1),count:o.count||null,spread:o.spread?+o.spread.toFixed(1):null}:null;
 }
+function calibrateBoard(){
+  if(corners.length!==4){setStatus('Prima rileva o imposta gli angoli della scacchiera.');return false}
+  if(!window.asmaCvReady||!window.cv){setStatus('OpenCV.js non è ancora pronto.');return false}
+  let board=null;
+  try{
+    board=rectifiedBoardMat();
+    const cell=BOARD_SCAN_SIZE/N,offsets=[-.29,0,.29];
+    const cells=Array.from({length:N},(_,r)=>Array.from({length:N},(_,c)=>{
+      const refs=[];
+      for(const oy of offsets)for(const ox of offsets){
+        const x=Math.round((c+.5+ox)*cell),y=Math.round((r+.5+oy)*cell);
+        let rs=0,gs=0,bs=0,count=0;
+        for(let yy=-2;yy<=2;yy++)for(let xx=-2;xx<=2;xx++){
+          const sx=Math.max(0,Math.min(board.cols-1,x+xx)),sy=Math.max(0,Math.min(board.rows-1,y+yy));
+          const i=(sy*board.cols+sx)*4;rs+=board.data[i];gs+=board.data[i+1];bs+=board.data[i+2];count++;
+        }
+        refs.push({r:rs/count,g:gs/count,b:bs/count,l:(rs+gs+bs)/(count*3)});
+      }
+      return {refs};
+    }));
+    boardCalibration={mode:'empty-board-v1',createdAt:new Date().toISOString(),cells};
+    localStorage.setItem(BOARD_CAL_KEY,JSON.stringify(boardCalibration));
+    document.getElementById('calibrateBoard').classList.add('active');
+    setStatus('Base vuota calibrata: ora legno e caselle chiare vengono esclusi dal rilevamento.');
+    return true;
+  }catch(error){
+    setStatus(`Calibrazione base fallita: ${error?.message||error}`);return false;
+  }finally{if(board)board.delete()}
+}
 function calibrateColors(){
   if(corners.length!==4){setStatus('Prima calibra gli angoli della scacchiera.');return false}
+  renderCalibrationGuide();
   const learned=[];
   const details=[];
   for(let c=0;c<N;c++){
     const spec=COLOR_TEST_COLUMNS[c], pts=[];
-    for(let r=0;r<N;r++){
+    for(let r=0;r<MARKER_SHAPES.length;r++){
       const sample=sampleKnownTokenColor(r,c);
       if(sample)pts.push(sample);
     }
     if(pts.length<3){
-      details.push(`${spec.id}: ${pts.length}/8`);
+      details.push(`${spec.id}: ${pts.length}/${MARKER_SHAPES.length}`);
       continue;
     }
     const avg=k=>pts.reduce((a,p)=>a+p[k],0)/pts.length;
@@ -1026,7 +1793,7 @@ function calibrateColors(){
       samples:pts.length,
       sampleRefs:pts.map(p=>({r:+p.r.toFixed(1),g:+p.g.toFixed(1),b:+p.b.toFixed(1),l:+p.l.toFixed(1)}))
     });
-    details.push(`${spec.id}: ${pts.length}/8`);
+    details.push(`${spec.id}: ${pts.length}/${MARKER_SHAPES.length}`);
   }
   if(learned.length<5){
     setStatus('Calibrazione debole: '+details.join(' · '));
@@ -1034,13 +1801,77 @@ function calibrateColors(){
   }
   colorCalibration={mode:'supervised-columns-v2',createdAt:new Date().toISOString(),columns:COLOR_TEST_COLUMNS,colors:learned};
   localStorage.setItem(COLOR_CAL_KEY,JSON.stringify(colorCalibration));
-  assumeFullGrid=true;
-  const fullBtn=document.getElementById('fullGridMode');
-  fullBtn.classList.add('active');
-  fullBtn.textContent='Griglia piena accesa';
+  assumeFullGrid=false;
   setStatus('Colori calibrati: '+details.join(' · '));
   scan(true);
   return true;
+}
+function calibrateRed(){
+  if(corners.length!==4){setStatus('Prima calibra gli angoli della scacchiera.');return false}
+  renderCalibrationGuide(redCalibrationTargets(),'Calibrazione rosso','Metti le cinque forme rosse nella prima colonna, dall alto verso il basso.');
+  const red=MARKER_COLORS.find(c=>c.id==='rosso');
+  const spec={kind:'place',cat:'rosso-quadrato',id:'rosso',hex:red.hex};
+  const pts=[];
+  for(const target of redCalibrationTargets()){
+    const sample=sampleKnownTokenColor(target.r,target.c);
+    if(sample)pts.push(sample);
+  }
+  if(pts.length<3){
+    setStatus(`Calibrazione rosso debole: ${pts.length}/${MARKER_SHAPES.length}. Metti le 5 pedine rosse nella prima colonna, dall'alto.`);
+    return false;
+  }
+  const avg=k=>pts.reduce((a,p)=>a+p[k],0)/pts.length;
+  const ref={r:avg('r'),g:avg('g'),b:avg('b'),l:avg('l')};
+  const spread=pts.reduce((a,p)=>a+colorDistance(p,ref),0)/pts.length;
+  const learned=[{
+    ...spec,
+    ref,
+    spread:+spread.toFixed(1),
+    samples:pts.length,
+    sampleRefs:pts.map(p=>({r:+p.r.toFixed(1),g:+p.g.toFixed(1),b:+p.b.toFixed(1),l:+p.l.toFixed(1)}))
+  }];
+  colorCalibration={mode:'supervised-red-row-v1',createdAt:new Date().toISOString(),columns:[spec],colors:learned};
+  localStorage.setItem(COLOR_CAL_KEY,JSON.stringify(colorCalibration));
+  assumeFullGrid=false;
+  setStatus(`Rosso calibrato: ${pts.length}/${MARKER_SHAPES.length} campioni. Ora premi Rileva pedine sul test forme rosse.`);
+  return true;
+}
+function matrixExpectedCat(r,c){
+  return r<MARKER_SHAPES.length?`${MARKER_COLORS[c].id}-${MARKER_SHAPES[r].id}`:null;
+}
+function evaluateMatrixResult(){
+  let presence=0,colorCorrect=0,shapeCorrect=0,exact=0,falsePositives=0;
+  const errors=[];
+  const perColor=MARKER_COLORS.map(color=>({color,presence:0,colorCorrect:0,shapeCorrect:0,exact:0}));
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const expected=matrixExpectedCat(r,c),seen=boardVision[r][c];
+    if(!expected){if(seen.pawn)falsePositives++;continue}
+    const expectedColor=MARKER_COLORS[c].id,expectedShape=MARKER_SHAPES[r].id;
+    const seenColor=seen.color?.id||MARKER_COLORS.find(candidate=>seen.cat?.startsWith(`${candidate.id}-`))?.id||null;
+    const seenShape=markerShapeFromCat(seen.cat);
+    if(seen.pawn){presence++;perColor[c].presence++}
+    if(seen.pawn&&seenColor===expectedColor){colorCorrect++;perColor[c].colorCorrect++}
+    if(seen.pawn&&seenShape===expectedShape){shapeCorrect++;perColor[c].shapeCorrect++}
+    if(seen.pawn&&seenColor===expectedColor&&seenShape===expectedShape){exact++;perColor[c].exact++}
+    else errors.push({row:r,column:c,expected,actual:seen.cat||seenColor||null,pawn:!!seen.pawn,presenceConfidence:+(seen.presenceConfidence||0).toFixed(2),colorConfidence:+(seen.colorConfidence||0).toFixed(2),shapeConfidence:+(seen.shapeConfidence||0).toFixed(2)});
+  }
+  const pct=value=>Math.round(value/(MARKER_COLORS.length*MARKER_SHAPES.length)*100);
+  matrixReport.innerHTML=`<section class="matrix-report"><h2>Risultato matrice 8 colori x 5 forme</h2><div class="matrix-summary">
+    <span class="matrix-score">Presenza <b>${presence}/40 (${pct(presence)}%)</b></span>
+    <span class="matrix-score">Colore <b>${colorCorrect}/40 (${pct(colorCorrect)}%)</b></span>
+    <span class="matrix-score">Forma <b>${shapeCorrect}/40 (${pct(shapeCorrect)}%)</b></span>
+    <span class="matrix-score">Completo <b>${exact}/40 (${pct(exact)}%)</b></span>
+    <span class="matrix-score">Falsi positivi <b>${falsePositives}</b></span>
+  </div><div class="matrix-colors">${perColor.map(item=>`<div class="matrix-color" style="--swatch:${item.color.hex}"><b>${item.color.name}</b><br>pedine ${item.presence}/5 · colore ${item.colorCorrect}/5 · forma ${item.shapeCorrect}/5 · esatte ${item.exact}/5</div>`).join('')}</div>${errors.length?`<p class="matrix-errors"><b>Celle da controllare:</b> ${errors.map(error=>`r${error.row+1} c${error.column+1}: ${error.expected} → ${error.actual||'non rilevata'} (${error.shapeConfidence})`).join(' · ')}</p>`:''}</section>`;
+  setStatus(`Test 8 x 5: ${presence}/40 pedine, ${colorCorrect}/40 colori, ${shapeCorrect}/40 forme, ${exact}/40 completi, ${falsePositives} falsi positivi.`);
+  return {presence,colorCorrect,shapeCorrect,exact,falsePositives,perColor,errors};
+}
+async function runMatrixTest(){
+  const button=document.getElementById('matrixTest');button.disabled=true;
+  try{
+    const ok=await scanWithAutomaticAi();
+    if(ok)evaluateMatrixResult();
+  }finally{button.disabled=false}
 }
 function send(silent=false){
   const sig=JSON.stringify(lastGrid);
@@ -1066,7 +1897,7 @@ canvas.addEventListener('pointerdown',e=>{
     if(corners.length>=4)corners=[];
     corners.push(p);
     trackQuality=corners.length===4?.75:.2;
-    setStatus(corners.length<4?'Angolo '+corners.length+' impostato. Continua in ordine 1 alto-sinistra, 2 alto-destra, 3 basso-destra, 4 basso-sinistra.':'Angoli manuali pronti. Trascina per correggere, poi Leggi colori.');
+    setStatus(corners.length<4?'Angolo '+corners.length+' impostato. Continua in ordine 1 alto-sinistra, 2 alto-destra, 3 basso-destra, 4 basso-sinistra.':'Angoli manuali pronti. Trascina per correggere, poi Rileva pedine.');
     if(corners.length===4){manualMode=false;document.getElementById('manual').classList.remove('active')}
     return;
   }
@@ -1092,22 +1923,21 @@ document.getElementById('manual').onclick=e=>{
   e.currentTarget.classList.add('active');
   setStatus('Clicca i 4 angoli: 1 alto-sinistra, 2 alto-destra, 3 basso-destra, 4 basso-sinistra.');
 };
-document.getElementById('scan').onclick=()=>scan(false);
+document.getElementById('scan').onclick=()=>scanWithAutomaticAi();
+document.getElementById('aiScan').onclick=()=>verifyWithAi();
+document.getElementById('aiCorners').onclick=()=>proposeAiCorners();
+const autoAiToggle=document.getElementById('autoAi');
+autoAiToggle.checked=localStorage.getItem(AUTO_AI_KEY)!=='0';
+autoAiToggle.onchange=()=>localStorage.setItem(AUTO_AI_KEY,autoAiToggle.checked?'1':'0');
+document.getElementById('calibrateBoard').onclick=()=>calibrateBoard();
 document.getElementById('calibrateColors').onclick=()=>calibrateColors();
+document.getElementById('calibrateRed').onclick=()=>calibrateRed();
+document.getElementById('matrixTest').onclick=()=>runMatrixTest();
 document.getElementById('resetCalibration').onclick=()=>{
-  colorCalibration=null;localStorage.removeItem(COLOR_CAL_KEY);
-  setStatus('Calibrazione colore cancellata.');
-};
-document.getElementById('fullGridMode').onclick=e=>{
-  assumeFullGrid=!assumeFullGrid;
-  e.currentTarget.classList.toggle('active',assumeFullGrid);
-  e.currentTarget.textContent=assumeFullGrid?'Griglia piena accesa':'Griglia piena spenta';
-  setStatus(assumeFullGrid?'Modalita test: considero una pedina in ogni cella con colore calibrato.':'Modalita reale: rilevo solo pedine presenti.');
-};
-document.getElementById('terrainMode').onclick=e=>{
-  readTerrains=!readTerrains;
-  e.currentTarget.classList.toggle('active',readTerrains);
-  e.currentTarget.textContent=readTerrains?'Terreni accesi':'Terreni spenti';
+  colorCalibration=null;boardCalibration=null;
+  localStorage.removeItem(COLOR_CAL_KEY);localStorage.removeItem(BOARD_CAL_KEY);
+  document.getElementById('calibrateBoard').classList.remove('active');
+  setStatus('Calibrazione colore e base cancellata.');
 };
 document.getElementById('copyDebug').onclick=()=>{
   const txt=JSON.stringify(lastDebug,null,2);
@@ -1123,8 +1953,11 @@ document.getElementById('saveSnapshot').onclick=()=>{
     video:{width:rawCanvas.width,height:rawCanvas.height},
     corners,
     colorCalibration,
+    boardCalibration,
     assumeFullGrid,
     debug:lastDebug,
+    candidates:lastCandidateDebug,
+    ai:lastAiResult,
     allCells:allCellDebug(),
     grid:lastGrid,
     image:rawCanvas.toDataURL('image/jpeg',.86)
@@ -1137,9 +1970,50 @@ document.getElementById('saveSnapshot').onclick=()=>{
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   setStatus('Snapshot scaricato. Allegamelo qui e posso testare sul frame reale.');
 };
+document.getElementById('loadSnapshotButton').onclick=()=>document.getElementById('loadSnapshot').click();
+async function loadSnapshotPayload(payload){
+  if(!payload.image||!Array.isArray(payload.corners)||payload.corners.length!==4)throw new Error('snapshot incompleto');
+  if(stream)stream.getTracks().forEach(track=>track.stop());
+  stream=null;video.srcObject=null;
+  const image=new Image();
+  await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=payload.image});
+  staticFrame=image;
+  corners=payload.corners.map(point=>({x:point.x,y:point.y}));
+  if(payload.colorCalibration){
+    colorCalibration=payload.colorCalibration;
+    localStorage.setItem(COLOR_CAL_KEY,JSON.stringify(colorCalibration));
+  }
+  if(payload.boardCalibration){
+    boardCalibration=payload.boardCalibration;
+    localStorage.setItem(BOARD_CAL_KEY,JSON.stringify(boardCalibration));
+    document.getElementById('calibrateBoard').classList.add('active');
+  }else{
+    boardCalibration=null;
+    localStorage.removeItem(BOARD_CAL_KEY);
+    document.getElementById('calibrateBoard').classList.remove('active');
+  }
+  assumeFullGrid=false;
+  boardVision=emptyVision();
+  ensureDrawLoop();
+  setStatus('Snapshot caricato. Avvio il nuovo rilevatore globale.');
+  requestAnimationFrame(()=>scan(false));
+}
+document.getElementById('loadSnapshot').onchange=async event=>{
+  const file=event.target.files?.[0];
+  if(!file)return;
+  try{
+    await loadSnapshotPayload(JSON.parse(await file.text()));
+  }catch(error){
+    setStatus(`Impossibile caricare lo snapshot: ${error?.message||error}`);
+  }finally{event.target.value=''}
+};
 document.getElementById('send').onclick=()=>send(false);
 listCameras().catch(()=>{});
+renderCalibrationGuide();
 renderPreview();
+document.getElementById('calibrateBoard').classList.toggle('active',!!boardCalibration);
+const snapshotUrl=new URLSearchParams(location.search).get('snapshot');
+if(snapshotUrl)fetch(snapshotUrl).then(response=>response.json()).then(loadSnapshotPayload).catch(error=>setStatus(`Test snapshot fallito: ${error?.message||error}`));
 </script>
 </body>
 </html>

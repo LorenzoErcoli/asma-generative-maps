@@ -67,7 +67,7 @@
 "use strict";
 const STORE='asma.iconLab.v1';
 const STORE_REV='asma.iconLab.rev';
-const REV='2026-08-23-simple-shapes-1';
+const REV='2026-08-24-cmyk-markers-1';
 const DEPRECATED=new Set(['fiume','lago','mare','montagna','collina']);
 const FORCE_DEFAULT=new Set(['chiesa','cimitero','monumento','municipio','piazza','torre','mercato','stazione','porto','bottega','ponte','porta','biblioteca','teatro','giardino','fontana','osteria','locale']);
 const ICON_BOOST=1.06;
@@ -79,6 +79,32 @@ const CAT_COLOR={
   biblioteca:'#7c5fe4',teatro:'#7c5fe4',giardino:'#7c5fe4',fontana:'#7c5fe4',
   osteria:'#41484b',locale:'#41484b'
 };
+const MARKER_COLORS=[
+  {id:'rosso',name:'Rosso',hex:'#ff0d19'},
+  {id:'arancione',name:'Arancione',hex:'#ff6600'},
+  {id:'giallo',name:'Giallo',hex:'#ffe600'},
+  {id:'verde',name:'Verde',hex:'#19ff26'},
+  {id:'turchese',name:'Turchese',hex:'#26ffd9'},
+  {id:'blu',name:'Blu',hex:'#0040ff'},
+  {id:'viola',name:'Viola',hex:'#590dff'},
+  {id:'magenta',name:'Magenta',hex:'#ff00d9'}
+];
+const MARKER_SHAPES=[
+  {id:'quadrato',name:'Quadrato',svg:'<path d="M28 28h44v44H28z"/>'},
+  {id:'cerchio',name:'Cerchio',svg:'<path d="M50 25a25 25 0 1 0 0 50 25 25 0 1 0 0-50z"/>'},
+  {id:'triangolo',name:'Triangolo',svg:'<path d="M50 24 78 72H22z"/>'},
+  {id:'croce',name:'Croce',svg:'<path d="M36 28h28v22h22v28H64v22H36V78H14V50h22z"/>'},
+  {id:'pentagono',name:'Pentagono',svg:'<path d="M25 34h50v28L50 82 25 62z"/>'}
+];
+function buildMarkerIcons(){
+  const out=[];
+  for(const color of MARKER_COLORS)for(const shape of MARKER_SHAPES){
+    out.push({id:`${color.id}-${shape.id}`,name:`${color.name} ${shape.name}`,colorId:color.id,colorHex:color.hex,shapeId:shape.id,scale:.92,dx:0,dy:0,svg:shape.svg});
+  }
+  return out;
+}
+Object.keys(CAT_COLOR).forEach(k=>delete CAT_COLOR[k]);
+for(const icon of buildMarkerIcons())CAT_COLOR[icon.id]=icon.colorHex;
 const DEFAULTS=[
   {id:'chiesa',name:'Chiesa',scale:.82,dx:0,dy:1,svg:'<path d="M50 16a34 34 0 1 0 0 68 34 34 0 0 0 0-68zM46 30h8v14h14v8H54v20h-8V52H32v-8h14z"/>'},
   {id:'cimitero',name:'Cimitero',scale:.84,dx:0,dy:2,svg:'<path d="M42 14h16v20h18v14H58v28h22v10H20V76h22V48H24V34h18z"/>'},
@@ -123,6 +149,7 @@ const SIMPLE_SHAPES={
 };
 function applySimpleShapes(list){list.forEach(icon=>{if(SIMPLE_SHAPES[icon.id])Object.assign(icon,SIMPLE_SHAPES[icon.id])})}
 applySimpleShapes(DEFAULTS);
+DEFAULTS.splice(0,DEFAULTS.length,...buildMarkerIcons());
 let icons=load(), active=icons[0].id;
 const $=id=>document.getElementById(id);
 function load(){

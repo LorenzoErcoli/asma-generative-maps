@@ -123,7 +123,28 @@ function generate(){
       ||routeRoad([v.x,v.y],end,F,WF,bridgeAdapter,terr,countryUsed);
     if(pts&&pts.length>1){country.push(pts);if(target)fringeUse.set(target.f,(fringeUse.get(target.f)||0)+1)}
   }
-  const fillers=makeFillers(F,inWater,places);
+  // gli ospedali (fillers 'H') erano solo un'iconcina appoggiata sopra il
+  // tessuto, senza un vero ingombro — "un ospedale che prende piu' spazio"
+  // vuol dire che deve occupare un lotto vero come un landmark, non restare
+  // decorativo. Dove trova un lotto abbastanza vicino lo reclama con la
+  // stessa forma a cortile dei palazzi importanti; altrimenti resta
+  // l'iconcina di riserva.
+  const rawFillers=makeFillers(F,inWater,places);
+  const claimedHospital=new Set();
+  const fillers=rawFillers.filter(f=>{
+    if(f.kind!=='H')return true;
+    let best=-1,bd=Infinity;
+    out.buildings.forEach((b,i)=>{
+      if(claimedHospital.has(i)||b.landmark||b.footprintParts||b.A<600)return;
+      const d=dist([f.x,f.y],b.c); if(d<bd){bd=d;best=i}
+    });
+    if(best<0||bd>CELL*1.5)return true; // nessun lotto adatto: tengo l'icona
+    claimedHospital.add(best);
+    const b=out.buildings[best];
+    b.landmark={cat:'ospedale',name:'Ospedale'};
+    b.footprintParts=landmarkFootprint(b.poly,'ospedale');
+    return false; // assorbito in un edificio vero: l'icona non serve piu'
+  });
   lastDiagnostics=diag;
 
   /* --- 7. render --- */
