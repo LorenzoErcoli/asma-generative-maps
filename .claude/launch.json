@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "v2-dev",
+      "name": "asma-dev",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["v2/serve.js"],
+      "runtimeArgs": ["serve.js"],
       "port": 8123
     }
   ]

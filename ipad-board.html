@@ -118,7 +118,7 @@ const MARKER_COLORS=[
   {id:'arancione',name:'Arancione',hex:'#ff6600'},
   {id:'giallo',name:'Giallo',hex:'#ffe600'},
   {id:'verde',name:'Verde',hex:'#19ff26'},
-  {id:'turchese',name:'Turchese',hex:'#26ffd9'},
+  {id:'grigio',name:'Grigio',hex:'#7d8f98'},
   {id:'blu',name:'Blu',hex:'#0040ff'},
   {id:'viola',name:'Viola',hex:'#590dff'},
   {id:'magenta',name:'Magenta',hex:'#ff00d9'}
@@ -130,6 +130,7 @@ const MARKER_SHAPES=[
   {id:'croce',name:'Croce',svg:'<path d="M36 28h28v22h22v28H64v22H36V78H14V50h22z"/>'},
   {id:'pentagono',name:'Pentagono',svg:'<path d="M25 34h50v28L50 82 25 62z"/>'}
 ];
+const CALIBRATION_ROWS=[0,1,3,5,7];
 function buildMarkerIcons(){
   const out=[];
   for(const color of MARKER_COLORS)for(const shape of MARKER_SHAPES){
@@ -198,7 +199,7 @@ function demo(){
   grid=Array.from({length:N},()=>Array(N).fill(null));ord=0;
   [
     ['rosso-quadrato',1,1],['rosso-cerchio',2,4],['arancione-triangolo',4,2],['giallo-croce',3,5],
-    ['verde-pentagono',5,3],['turchese-quadrato',6,5],['blu-cerchio',1,6],['viola-triangolo',5,6],['magenta-croce',6,2]
+    ['verde-pentagono',5,3],['grigio-quadrato',6,5],['blu-cerchio',1,6],['viola-triangolo',5,6],['magenta-croce',6,2]
   ].forEach(([cat,r,c])=>grid[r][c]={kind:'place',cat,ord:++ord});
   render();send(false);
 }
@@ -210,17 +211,17 @@ function colorTest(){
 }
 function shapeTest(){
   ord=0;
-  grid=Array.from({length:N},(_,r)=>Array.from({length:N},(_,c)=>{
-    if(r>=MARKER_SHAPES.length)return null;
-    return {kind:'place',cat:`${MARKER_COLORS[c].id}-${MARKER_SHAPES[r].id}`,ord:++ord};
+  grid=Array.from({length:N},()=>Array(N).fill(null));
+  MARKER_SHAPES.forEach((shape,index)=>MARKER_COLORS.forEach((color,c)=>{
+    grid[CALIBRATION_ROWS[index]][c]={kind:'place',cat:`${color.id}-${shape.id}`,ord:++ord};
   }));
   render();send(false);
 }
 function redTest(){
   ord=0;
   grid=Array.from({length:N},()=>Array(N).fill(null));
-  MARKER_SHAPES.forEach((shape,r)=>{
-    grid[r][0]={kind:'place',cat:`rosso-${shape.id}`,ord:++ord};
+  MARKER_SHAPES.forEach((shape,index)=>{
+    grid[CALIBRATION_ROWS[index]][0]={kind:'place',cat:`rosso-${shape.id}`,ord:++ord};
   });
   render();send(false);
 }

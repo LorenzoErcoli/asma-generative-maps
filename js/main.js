@@ -11,13 +11,31 @@ function generate(){
   RND=mulberry32(seed); NSEED=(seed%100000)+1;
 
   /* --- 1. leggo la scacchiera --- */
-  const terr={water:[],mountain:[],hill:[]};
+  const terr={water:[],mountain:[],hill:[],green:[]};
   const pawns=[];
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){
     const v=grid[r][c];if(!v)continue;
     if(v.kind==='terrain')terr[v.terrain].push([r,c]);
-    else if(v.kind==='place')pawns.push({r,c,cat:v.cat,ord:v.ord,jolly:false});
-    else pawns.push({r,c,cat:'jolly',ord:v.ord,jolly:true,label:jollyText[v.j]||'Desiderio '+(v.j+1)});
+    else if(v.kind==='place')pawns.push({r,c,cat:v.cat,ord:v.ord,jolly:false,sub:v.sub});
+    else if(v.kind==='jolly')pawns.push({r,c,cat:'jolly',ord:v.ord,jolly:true,label:jollyText[v.j]||'Desiderio '+(v.j+1)});
+  }
+  // il verde e' terreno "grezzo" (oggi solo dallo scanner, vedi ui.js): non
+  // sceglie da solo cosa diventa, lo decide l'agglomerato di celle una
+  // volta piazzate — esattamente come l'acqua decide da sola se e' un
+  // fiume. 1 pezzo isolato = giardino, 2 adiacenti = parco cittadino (una
+  // pedina "giardino" piu' grande, stesso meccanismo). Un agglomerato di 3+
+  // diventa collina se e' dentro la citta' — un vero ostacolo nel tessuto,
+  // vedi buildTessuto — o montagna se tocca il bordo della scacchiera,
+  // come un pennello Montagna piazzato a mano.
+  const hillClusters=[];
+  for(const cells of comps(terr.green)){
+    const touchesEdge=cells.some(([r,c])=>r===0||r===N-1||c===0||c===N-1);
+    if(cells.length>=3){
+      if(touchesEdge)terr.mountain.push(...cells);else hillClusters.push(cells);
+      continue;
+    }
+    const cr=cells.reduce((a,[r])=>a+r,0)/cells.length, cc=cells.reduce((a,[,c])=>a+c,0)/cells.length;
+    pawns.push({r:cr,c:cc,cat:'giardino',ord:9000+pawns.length,jolly:false,parkTier:cells.length});
   }
   pawns.sort((a,b)=>a.ord-b.ord);
 
@@ -35,7 +53,7 @@ function generate(){
   for(const p of places){
     p.gx=p.c+.5+rr(-.16,.16); p.gy=p.r+.5+rr(-.16,.16);
     p.x=W(p.gx); p.y=W(p.gy);
-    p.name=p.jolly?cap(p.label.split(/\s+/).slice(0,3).join(' ')):nameFor(p.cat);
+    p.name=p.jolly?cap(p.label.split(/\s+/).slice(0,3).join(' ')):nameFor(p.cat,p.sub);
   }
 
   if(!places.length){
@@ -82,7 +100,12 @@ function generate(){
      visibili (waterLayer) ma non tagliano la citta'. */
   const river=rivers.length?rivers[0]:null;
   const railStations=places.filter(p=>p.cat==='stazione');
-  const {out,bridges,rail,diag}=buildTessuto(cityPoly,river,places,railStations);
+  const hills=hillClusters.map(cells=>({
+    x:cells.reduce((a,[r,c])=>a+W(c+.5),0)/cells.length,
+    y:cells.reduce((a,[r,c])=>a+W(r+.5),0)/cells.length,
+    n:cells.length,
+  }));
+  const {out,bridges,rail,diag}=buildTessuto(cityPoly,river,places,railStations,hills);
 
   // le piazze occupano davvero un pezzo di tessuto (out.reserved): il
   // marcatore d'itinerario si appoggia al bordo di quella forma vera,
@@ -166,6 +189,8 @@ function generate(){
   S.push(tessutoQuaysLayer(out,P));
   S.push(tessutoBuildingsLayer(out,P));
   S.push(tessutoReservedLayer(out,P));
+  S.push(gardenDetailsLayer(out,P));
+  S.push(collinaContourLayer(out,P));
   S.push(tessutoStreetsLayer(out,P));
   S.push(waterLayer(waterLoops,rivers,waterComps,docks));
   S.push(tessutoBridgesLayer(bridges,P));

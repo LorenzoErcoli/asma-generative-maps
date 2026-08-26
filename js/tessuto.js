@@ -25,7 +25,7 @@ const RECT_ACCEPT=.34;
 const RAIL_HW=3.5;
 const LANDMARK_FILL={chiesa:'#8e4a6b',municipio:'#c9967a',mercato:'#b5893f',teatro:'#5a7a92',osteria:'#9c6b3a',bottega:'#7c8a52',
   monumento:'#8a7a8a',torre:'#6b5a44',stazione:'#5a6b8a',porto:'#4a7a8a',biblioteca:'#4a6b82',fontana:'#6f9ab5',locale:'#9c6b8a',
-  ospedale:'#a85454'};
+  ospedale:'#a85454',cinema:'#7a5a8a'};
 const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',teatro:'apse',stazione:'shed',fontana:'basin',ospedale:'courtyard'};
 
 /* ---------------- forme organiche (piazze/giardini/verde) ----------------
@@ -44,15 +44,77 @@ const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',
 // il risultato contro i veri lati del lotto, con lo stesso margine reale
 // gia' usato per gli edifici: garantisce di restare dentro qualunque sia
 // la forma, l'inset resta solo un punto di partenza ragionevole.
-function clipToPoly(shape,poly,margin){
+//
+// ATTENZIONE — tentativo precedente scartato: un taglio SEQUENZIALE a
+// semipiani (un clipHalf per ogni lato di poly, come si fa con trimRiver)
+// e' corretto solo se poly e' CONVESSO: e' letteralmente l'intersezione
+// di tutti quei semipiani, cioe' l'inviluppo convesso del poligono, non
+// la sua vera sagoma. Un lotto d'angolo o storto (frequentissimo dopo la
+// ricorsione) e' spesso concavo: con quel metodo un giardino "spontaneo"
+// (verde autonomo, cortile-in-verde, sagrato) finiva col vertice piantato
+// nell'incavo del lotto — cioe' visivamente sopra il palazzo vicino che
+// occupa quell'incavo. Fix: per ogni vertice della forma si spara un
+// raggio dal centroide verso quel vertice e si trova la VERA distanza dal
+// bordo lungo quella direzione (il primo lato di poly incontrato, non
+// l'inviluppo), poi si arretra di margin. Funziona per qualunque lotto a
+// stella rispetto al proprio centroide — il caso normale per un lotto
+// generato dalla ricorsione.
+function rayEdgeDist(o,dir,a,b){
+  const sx=b[0]-a[0], sy=b[1]-a[1];
+  const denom=dir[0]*sy-dir[1]*sx;
+  if(Math.abs(denom)<1e-9)return null;
+  const qx=a[0]-o[0], qy=a[1]-o[1];
+  const t=(qx*sy-qy*sx)/denom, u=(qx*dir[1]-qy*dir[0])/denom;
+  return (t>1e-6&&u>=-1e-9&&u<=1+1e-9)?t:null;
+}
+// il centroide "media dei vertici" (vedi geometry.js) non e' l'area giusta
+// per un lotto molto concavo (una L stretta, una falce residua di un
+// taglio) — puo' cadere FUORI dal poligono. Un raggio che parte gia' fuori
+// non trova mai il vero bordo nella direzione giusta: verificato su un
+// giro di 40 semi casuali, causava ancora vertici fuori posto (stavolta
+// nei 'verde' ricavati da isolati storti). Se il centroide e' fuori, si usa
+// il punto medio della coppia di vertici piu' lontana che ricade DENTRO —
+// una vera diagonale interna, garantita esistere in un poligono semplice.
+function interiorAnchor(poly){
   const c=centroid(poly);
-  let out=shape;
-  for(let i=0;i<poly.length&&out.length>=3;i++){
-    const a=poly[i], b=poly[(i+1)%poly.length];
-    const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
-    let nv=[dy/L,-dx/L], offset=a[0]*nv[0]+a[1]*nv[1];
-    if(c[0]*nv[0]+c[1]*nv[1]-offset>0){nv=[-nv[0],-nv[1]];offset=-offset}
-    out=clipHalf(out,nv,offset-margin,false);
+  if(inPoly(c,poly))return c;
+  let best=null,bd=-1;
+  for(let i=0;i<poly.length;i++)for(let j=i+1;j<poly.length;j++){
+    const mid=[(poly[i][0]+poly[j][0])/2,(poly[i][1]+poly[j][1])/2];
+    if(!inPoly(mid,poly))continue;
+    const d=dist(poly[i],poly[j]);
+    if(d>bd){bd=d;best=mid}
+  }
+  return best||poly[0];
+}
+function clipToPoly(shape,poly,margin){
+  const c=interiorAnchor(poly);
+  const out=[];
+  for(const p of shape){
+    const dx=p[0]-c[0], dy=p[1]-c[1], d=Math.hypot(dx,dy);
+    if(d<1e-6){out.push(p);continue}
+    const ux=dx/d, uy=dy/d;
+    let boundary=Infinity;
+    for(let i=0;i<poly.length;i++){
+      const t=rayEdgeDist(c,[ux,uy],poly[i],poly[(i+1)%poly.length]);
+      if(t!==null&&t<boundary)boundary=t;
+    }
+    let final=boundary===Infinity?d:Math.min(d,Math.max(0,boundary-margin));
+    let cand=[c[0]+ux*final,c[1]+uy*final];
+    // rete di sicurezza finale: il calcolo analitico del bordo presume un
+    // poligono semplice (nessun lato che si autointerseca). Un lotto
+    // patologico che arriva cosi' dal resto della ricorsione (raro, ma
+    // osservato: un vertice duplicato / uno spuntone a larghezza zero) puo'
+    // ingannarlo. Se il punto risulta comunque fuori, si dimezza la
+    // distanza dal centro finche' non rientra davvero — funziona SEMPRE
+    // perche' il centro stesso e' garantito dentro (interiorAnchor sopra).
+    let guard=0;
+    while(!inPoly(cand,poly)&&guard<8){
+      final*=.5;
+      cand=[c[0]+ux*final,c[1]+uy*final];
+      guard++;
+    }
+    out.push(cand);
   }
   return out.length>=3?out:shape;
 }
@@ -423,7 +485,23 @@ function subdivide(polyIn,depth,ctx,out){
       const box=tryReserveShape(polyIn,anc,ctx.anchors);
       if(box){
         anc.done=true;
-        out.reserved.push({type:anc.type,poly:box.reserved,name:anc.name});
+        // il taglio vero (box.reserved) combacia esattamente con l'edificio
+        // vicino, bordo a bordo — corretto per una piazza pavimentata, ma un
+        // giardino o un cimitero senza NESSUN margine visibile si legge come
+        // "incollato" al palazzo accanto invece che come uno spazio a se'.
+        // Un piccolo rientro verso il centro (mai calcolato scavando di
+        // nuovo il terreno: e' solo il contorno disegnato un po' piu' dentro)
+        // basta a suggerire il sentiero/la siepe che li' separa davvero.
+        // Il giardino, essendo ormai un vero parco (area grande, vedi sopra),
+        // si permette anche un bordo sinuoso vero e proprio: organicBlob
+        // parte dal box.reserved GIA' tagliato con successo (non tocca la
+        // sagoma usata per il taglio) e lo ritaglia di nuovo contro se
+        // stesso — il margine costante garantisce che resti comunque dentro.
+        const shapePoly=anc.type==='piazza'?null
+          :anc.type==='giardino'?organicBlob(box.reserved,rr(.16,.24),rr(0,Math.PI*2),.92)
+          :anc.type==='collina'?organicBlob(box.reserved,rr(.10,.16),rr(0,Math.PI*2),.94)
+          :scalePoly(box.reserved,centroid(box.reserved),.9);
+        out.reserved.push({type:anc.type,poly:box.reserved,name:anc.name,shapePoly});
         for(const seg of box.streetChords)out.streets.push({pts:seg,depth});
         for(const rem of box.remainder)subdivide(rem,depth+1,ctx,out);
         return;
@@ -738,14 +816,47 @@ function localAxisAngle(boundarySamples,p,radius){
   for(const q of pts){const dx=q[0]-c[0],dy=q[1]-c[1];sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy}
   return .5*Math.atan2(2*sxy,sxx-syy);
 }
-function buildTessuto(cityPoly, river, places, railStations){
+function buildTessuto(cityPoly, river, places, railStations, hills){
   const anchors=places.filter(p=>ANCHOR_CATS.has(p.cat)).map(p=>({
     type:p.cat,pos:[p.x,p.y],name:p.name,done:false,moved:0,fallback:false,
-    halfAlong:p.cat==='piazza'?rr(33,46):rr(37,53),
-    halfAcross:p.cat==='piazza'?rr(26,37):rr(31,44),
-    wobble:p.cat==='giardino'?rr(.22,.30):p.cat==='cimitero'?rr(.14,.20):rr(.12,.18),
+    // un giardino da pedina e' un vero PARCO cittadino, non un'aiuola: deve
+    // leggersi come uno spazio a se', ben piu' grande di una piazza o di un
+    // cimitero. Un raggio quasi doppio (area ~2.6x) fa si' che l'ancora
+    // reclami un pezzo di citta' ancora poco suddiviso, prima che la
+    // ricorsione lo tagli in isolati piccoli — esattamente come un vero
+    // parco urbano precede i quartieri intorno, non nasce dai loro ritagli.
+    // p.parkTier=2 (due pedine verdi adiacenti, vedi main.js) chiede un
+    // "parco cittadino" ancora piu' grande di un giardino normale.
+    halfAlong:p.cat==='piazza'?rr(33,46):p.cat==='giardino'?rr(58,78)*(p.parkTier===2?1.35:1):rr(37,53),
+    halfAcross:p.cat==='piazza'?rr(26,37):p.cat==='giardino'?rr(46,62)*(p.parkTier===2?1.35:1):rr(31,44),
+    // ATTENZIONE — qui wobble/steps descrivono la sagoma che tryReserveShape
+    // usa per il VERO taglio (le strade nascono da questi lati, vedi sopra):
+    // deve restare vicina a un'ellisse, altrimenti il controllo di
+    // convessita' (>=.82, riga piu' sotto in tryReserveShape) non passa mai
+    // e l'ancora cade SEMPRE nel ripiego "prendi l'edificio piu' vicino" —
+    // verificato: con wobble .30-.40 il giardino falliva il taglio reale nel
+    // 100% dei tentativi provati, finendo minuscolo invece che un parco. Il
+    // profilo sinuoso "vero" (quello che l'utente vede) va aggiunto DOPO,
+    // come shapePoly cosmetico sul poligono gia' tagliato con successo, non
+    // qui: vedi subdivide(), blocco "B) ancore".
+    wobble:p.cat==='cimitero'?rr(.14,.20):rr(.12,.18),
     phase:rr(0,Math.PI*2), steps:10,
   }));
+  // collina in citta' (agglomerato verde >=3 celle, non sul bordo — vedi
+  // main.js): non nasce da una pedina vera, e' un ostacolo di terreno.
+  // Riusa la STESSA macchina di ritaglio delle ancore: la sagoma diventa un
+  // vero taglio nel tessuto (out.reserved), il suo perimetro nasce come
+  // strada vera che le gira attorno, e la ricorsione prosegue solo sul
+  // resto — nessun edificio puo' finirci sopra, esattamente come una
+  // piazza. Cresce con la dimensione dell'agglomerato (h.n celle).
+  for(const h of (hills||[])){
+    const scale=Math.sqrt(Math.max(1,h.n)/3);
+    anchors.push({
+      type:'collina',pos:[h.x,h.y],name:nameFor('collina'),done:false,moved:0,fallback:false,
+      halfAlong:rr(46,64)*scale,halfAcross:rr(38,52)*scale,
+      wobble:rr(.14,.20),phase:rr(0,Math.PI*2),steps:12,
+    });
+  }
   const landmarkPawns=places.filter(p=>!ANCHOR_CATS.has(p.cat));
   const rail=railStations.length?buildRail(railStations,cityPoly):null;
   const railBands=rail?rail.segments.map(([a,b])=>railBand(a,b,RAIL_HW)):[];
@@ -777,7 +888,7 @@ function buildTessuto(cityPoly, river, places, railStations){
     out.buildings.forEach((b,i)=>{if(b._claimed)return;const d=dist(anc.pos,b.c);if(d<bd){bd=d;best=i}});
     if(best>=0&&bd<CELL*1.8){
       out.buildings[best]._claimed=true;
-      const wob=anc.type==='giardino'?.20:anc.type==='cimitero'?.14:.12;
+      const wob=anc.type==='giardino'?.32:anc.type==='cimitero'?.14:anc.type==='collina'?.14:.12;
       out.reserved.push({type:anc.type,poly:out.buildings[best].poly,name:anc.name,
         shapePoly:organicBlob(out.buildings[best].poly,wob,rr(0,Math.PI*2),.72)});
       out.buildings.splice(best,1);
@@ -793,7 +904,7 @@ function buildTessuto(cityPoly, river, places, railStations){
   // chiesa poteva finire su un lotto minuscolo solo perche' era il primo
   // a portata, mentre un lotto ben piu' grande stava a pochi passi in piu'.
   const claimed=new Set();
-  const BIG_LANDMARK=new Set(['chiesa','municipio','mercato','teatro','stazione']);
+  const BIG_LANDMARK=new Set(['chiesa','municipio','mercato','teatro','stazione','cinema']);
   for(const lp of landmarkPawns){
     const prefersBig=BIG_LANDMARK.has(lp.cat);
     const searchR=prefersBig?CELL*1.9:CELL*1.4;
@@ -880,7 +991,7 @@ function buildTessuto(cityPoly, river, places, railStations){
     const nb=out.buildings[idx];
     const giardino=RND()<.5;
     out.reserved.push({type:giardino?'giardino':'piazza',poly:nb.poly,name:null,
-      shapePoly:giardino?organicBlob(nb.poly,.20,rr(0,Math.PI*2),.72):null});
+      shapePoly:giardino?organicBlob(nb.poly,.32,rr(0,Math.PI*2),.72):null});
   }
   if(claimedForecourt.size)out.buildings=out.buildings.filter((b,i)=>!claimedForecourt.has(i));
 
@@ -916,7 +1027,7 @@ function buildTessuto(cityPoly, river, places, railStations){
           claimedNeighbor.add(nIdx);
           const nb=out.buildings[nIdx], roll=RND();
           if(roll<.4)out.reserved.push({type:'giardino',poly:nb.poly,name:null,
-            shapePoly:organicBlob(nb.poly,.20,rr(0,Math.PI*2),.72)});
+            shapePoly:organicBlob(nb.poly,.32,rr(0,Math.PI*2),.72)});
           else if(roll<.75)out.reserved.push({type:'piazza',poly:nb.poly,name:null,shapePoly:null});
           else out.reserved.push({type:'fontana',poly:nb.poly,name:null,
             shapePoly:organicBlob(nb.poly,.05,rr(0,Math.PI*2),.4)});

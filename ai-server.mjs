@@ -29,7 +29,7 @@ const HTTPS_PORT=Number(process.env.HTTPS_PORT||8766);
 const MODEL=process.env.OPENAI_VISION_MODEL||'gpt-5.6-terra';
 const MAX_BODY=16*1024*1024;
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.svg':'image/svg+xml','.pdf':'application/pdf','.cer':'application/pkix-cert'};
-const COLORS=['rosso','arancione','giallo','verde','turchese','blu','viola','magenta','sconosciuto'];
+const COLORS=['rosso','arancione','giallo','verde','grigio','blu','viola','magenta','sconosciuto'];
 const SHAPES=['quadrato','cerchio','triangolo','croce','pentagono','sconosciuta'];
 
 function json(res,status,payload){

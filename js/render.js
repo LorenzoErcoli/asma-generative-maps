@@ -76,10 +76,53 @@ const PIAZZA_FILL=P=>mixHex(P.built,P.paper,.55);
 function tessutoReservedLayer(out,P){
   let s='';
   for(const r of out.reserved){
-    const fill=r.type==='piazza'?PIAZZA_FILL(P):r.type==='giardino'||r.type==='verde'?P.green
+    const fill=r.type==='piazza'?PIAZZA_FILL(P):r.type==='giardino'||r.type==='verde'||r.type==='collina'?P.green
       :r.type==='fontana'?P.water:'url(#ceme)';
     const stroke=r.type==='piazza'?P.ink:r.type==='fontana'?P.waterLn:r.type==='cimitero'?P.greenDk:P.greenDk;
     s+=`<path d="${dPoly(r.shapePoly||r.poly,true)}" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>`;
+  }
+  return s;
+}
+// una collina in citta' e' terreno, non un prato piatto: un paio di curve
+// di livello (copie concentriche ristrette verso il centro, stesso
+// linguaggio grafico di reliefLayer per collina/montagna in campagna) bastano
+// a leggerla come rilievo vero senza inventare un motore di ombreggiatura.
+function collinaContourLayer(out,P){
+  let s='';
+  for(const r of out.reserved){
+    if(r.type!=='collina')continue;
+    const poly=r.shapePoly||r.poly, c=centroid(poly);
+    for(const k of [.68,.4]){
+      const ring=scalePoly(poly,c,k);
+      s+=`<path d="${dPoly(ring,true)}" fill="none" stroke="${P.greenDk}" stroke-width="1" opacity=".5"/>`;
+    }
+  }
+  return s;
+}
+// un giardino vuoto e verde non si legge come "curato": un vialetto che lo
+// attraversa o una piccola fontana al centro bastano a suggerire che
+// qualcuno ci passeggia davvero, non solo un ritaglio di prato.
+function gardenDetailsLayer(out,P){
+  let s='';
+  for(const r of out.reserved){
+    if(r.type!=='giardino')continue;
+    const poly=r.shapePoly||r.poly;
+    const ext=orientedExtent(poly);
+    if(RND()<.55){
+      const steps=12,pts=[],phase=rr(0,Math.PI*2);
+      for(let i=0;i<=steps;i++){
+        const t=i/steps, along=(t-.5)*ext.maxA*1.7;
+        const wob=Math.sin(t*Math.PI*2.4+phase)*ext.maxN*.32;
+        pts.push(addv(ext.c,ext.dirVec,along,ext.nVec,wob));
+      }
+      const clipped=pts.filter(p=>inPoly(p,poly));
+      if(clipped.length>=2)
+        s+=`<path d="${dPoly(clipped,false)}" fill="none" stroke="${P.builtLn}" stroke-width="1.3" stroke-dasharray="1 2.6" opacity=".75"/>`;
+    }else{
+      const r2=Math.min(ext.maxA,ext.maxN)*.22,steps=8,pts=[];
+      for(let i=0;i<steps;i++){const t=i/steps*Math.PI*2;pts.push(addv(ext.c,ext.dirVec,Math.cos(t)*r2,ext.nVec,Math.sin(t)*r2))}
+      s+=`<path d="${dPoly(pts,true)}" fill="${P.water}" stroke="${P.waterLn}" stroke-width="1"/>`;
+    }
   }
   return s;
 }

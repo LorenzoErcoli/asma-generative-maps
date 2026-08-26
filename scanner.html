@@ -18,11 +18,21 @@
   button.ai{border-color:#5f7ea8;background:#26384d}
   .toggle-row{display:flex;align-items:center;gap:8px;min-height:34px;margin:3px 0;color:var(--ink);font-size:12px}
   .toggle-row input{width:18px;height:18px;accent-color:var(--accent)}
+  dialog{color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:0;width:min(920px,calc(100vw - 28px));max-height:calc(100vh - 28px)}
+  dialog::backdrop{background:rgba(5,4,3,.78)}
+  .dialog-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .dialog-head h2{font-size:14px;margin:0}
+  .icon-button{width:38px;min-width:38px;height:38px;margin:0;font-size:22px;line-height:1}
+  .calibration-body{padding:12px;display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);gap:12px}
+  .calibration-actions{display:flex;flex-direction:column}
+  .calibration-results{display:grid;gap:10px;align-content:start}
   #status{font-size:12px;color:var(--muted);line-height:1.4;margin-top:8px}
   main{display:grid;gap:10px}
   .stage{position:relative;min-height:55vh;background:#050505;border:1px solid var(--line);border-radius:8px;overflow:hidden}
   video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
   video{opacity:0}
+  #boardCrop{display:none;background:#050505}
+  #calibrationCrop{position:static;display:block;width:100%;height:auto;aspect-ratio:1;object-fit:contain;background:#050505;border:1px solid var(--line);border-radius:7px}
   #preview{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;background:#111;border:1px solid var(--line);padding:2px;max-width:520px}
   #debug{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;max-width:860px}
   #calibGuide{background:#241d16;border:1px solid var(--line);border-radius:8px;padding:10px;max-width:520px}
@@ -59,13 +69,19 @@
   .review-summary{background:#33291f;border:1px solid #f0a12b;border-radius:8px;padding:8px 10px;font-size:11px;line-height:1.45;color:var(--ink)}
   .water{background:#006cb6;color:white}.mountain{background:#744018;color:white}.hill{background:#5c8e24;color:white}
   .place{background:#fff;border:4px solid #111}.jolly{background:#fff2b9;border:4px solid #111}
-  @media (max-width:850px){body{display:block}.stage{height:55vh;margin-top:10px}.matrix-colors{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  body.dashboard{display:block;padding:0;overflow:hidden}
+  body.dashboard aside,body.dashboard main>:not(.stage),body.dashboard>dialog{display:none}
+  body.dashboard main{display:block;height:100vh}
+  body.dashboard .stage{width:100%;height:100%;min-height:0;border:0;border-radius:0}
+  body.dashboard dialog[open]{display:block}
+  @media (max-width:850px){body{display:block}.stage{height:55vh;margin-top:10px}.matrix-colors{grid-template-columns:repeat(2,minmax(0,1fr))}.calibration-body{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
+<script>if(new URLSearchParams(location.search).has('dashboard'))document.body.classList.add('dashboard')</script>
 <aside>
   <h1>Scanner camera</h1>
-  <p>Rileva la scacchiera, calibra la base senza pedine, poi calibra i colori e inserisci le pedine.</p>
+  <p>Rileva la scacchiera e acquisisci le pedine.</p>
   <select id="camera"></select>
   <button class="primary" id="start">Avvia camera</button>
   <button id="track">Rileva scacchiera</button>
@@ -73,27 +89,37 @@
   <button id="scan">Rileva pedine</button>
   <button class="ai" id="aiScan">Verifica forme con AI</button>
   <button class="ai" id="aiCorners">Proponi bordi con AI</button>
-  <label class="toggle-row"><input id="autoAi" type="checkbox" checked> AI automatica sotto 0,90</label>
-  <button id="calibrateBoard">Calibra base vuota</button>
-  <button id="calibrateColors">Calibra 8 colori</button>
-  <button id="calibrateRed">Calibra rosso</button>
-  <button id="matrixTest">Rileva e valuta 8 x 5</button>
-  <button id="resetCalibration">Reset calibrazione</button>
-  <button id="copyDebug">Copia debug</button>
-  <button id="saveSnapshot">Scarica snapshot</button>
-  <button id="loadSnapshotButton">Carica snapshot</button>
+  <label class="toggle-row"><input id="autoAi" type="checkbox" checked> Controlla ogni pedina con AI</label>
+  <button id="openCalibration">Calibrazione...</button>
+  <details>
+    <summary>Diagnostica</summary>
+    <button id="copyDebug">Copia debug</button>
+    <button id="saveSnapshot">Scarica snapshot</button>
+    <button id="loadSnapshotButton">Carica snapshot</button>
+  </details>
   <input id="loadSnapshot" type="file" accept="application/json" hidden>
-  <button id="send">Invia alla mappa</button>
+  <button class="primary" id="send">Usa nella mappa</button>
   <div id="status">Pronto.</div>
 </aside>
 <main>
-  <div class="stage"><video id="video" playsinline muted></video><canvas id="canvas"></canvas></div>
-  <div id="calibGuide"></div>
-  <div id="matrixReport"></div>
+  <div class="stage"><video id="video" playsinline muted></video><canvas id="canvas"></canvas><canvas id="boardCrop"></canvas></div>
   <div id="reviewSummary"></div>
   <div id="preview"></div>
   <div id="debug"></div>
 </main>
+<dialog id="calibrationDialog">
+  <div class="dialog-head"><h2>Calibrazione scanner</h2><button class="icon-button" id="closeCalibration" title="Chiudi" aria-label="Chiudi">&times;</button></div>
+  <div class="calibration-body">
+    <div class="calibration-actions">
+      <button id="calibrateBoard">Calibra base vuota</button>
+      <button id="calibrateColors">Calibra 8 colori</button>
+      <button id="calibrateRed">Calibra rosso</button>
+      <button id="matrixTest">Rileva e valuta 8 x 5</button>
+      <button id="resetCalibration">Reset calibrazione</button>
+    </div>
+    <div class="calibration-results"><canvas id="calibrationCrop" width="400" height="400"></canvas><div id="calibGuide"></div><div id="matrixReport"></div></div>
+  </div>
+</dialog>
 <script>
 function onOpenCvScriptLoaded(){
   try{
@@ -114,7 +140,7 @@ function onOpenCvScriptLoaded(){
 <script async src="vendor/opencv.js" onload="onOpenCvScriptLoaded()"></script>
 <script>
 "use strict";
-const N=8, KEY='asma.externalGrid.v1', CH='asma-grid-v1', COLOR_CAL_KEY='asma.colorCalibration.v5', BOARD_CAL_KEY='asma.boardCalibration.v1', AUTO_AI_KEY='asma.autoAi.v1';
+const N=8, KEY='asma.externalGrid.v1', CH='asma-grid-v1', COLOR_CAL_KEY='asma.colorCalibration.v8', BOARD_CAL_KEY='asma.boardCalibration.v1', AUTO_AI_KEY='asma.autoAi.v1';
 const ICONS=[
  {id:'chiesa',name:'Chiesa',scale:.82,dx:0,dy:1,svg:'<path d="M50 16a34 34 0 1 0 0 68 34 34 0 0 0 0-68zM46 30h8v14h14v8H54v20h-8V52H32v-8h14z"/>'},
  {id:'cimitero',name:'Cimitero',scale:.84,dx:0,dy:2,svg:'<path d="M42 14h16v20h18v14H58v28h22v10H20V76h22V48H24V34h18z"/>'},
@@ -162,7 +188,7 @@ const MARKER_COLORS=[
   {id:'arancione',name:'Arancione',hex:'#ff6600'},
   {id:'giallo',name:'Giallo',hex:'#ffe600'},
   {id:'verde',name:'Verde',hex:'#19ff26'},
-  {id:'turchese',name:'Turchese',hex:'#26ffd9'},
+  {id:'grigio',name:'Grigio',hex:'#7d8f98'},
   {id:'blu',name:'Blu',hex:'#0040ff'},
   {id:'viola',name:'Viola',hex:'#590dff'},
   {id:'magenta',name:'Magenta',hex:'#ff00d9'}
@@ -174,6 +200,7 @@ const MARKER_SHAPES=[
   {id:'croce',name:'Croce',svg:'<path d="M36 28h28v22h22v28H64v22H36V78H14V50h22z"/>'},
   {id:'pentagono',name:'Pentagono',svg:'<path d="M25 34h50v28L50 82 25 62z"/>'}
 ];
+const CALIBRATION_ROWS=[0,1,3,5,7];
 function buildMarkerIcons(){
   const out=[];
   for(const color of MARKER_COLORS)for(const shape of MARKER_SHAPES){
@@ -200,22 +227,32 @@ let boardCalibration=loadBoardCalibration();
 let cvShapeTemplatesCache=null;
 const video=document.getElementById('video'), canvas=document.getElementById('canvas'), ctx=canvas.getContext('2d');
 const rawCanvas=document.createElement('canvas'), rawCtx=rawCanvas.getContext('2d',{willReadFrequently:true});
-const status=document.getElementById('status'), preview=document.getElementById('preview'), debugEl=document.getElementById('debug'), cameraSel=document.getElementById('camera'), calibGuide=document.getElementById('calibGuide'), matrixReport=document.getElementById('matrixReport'), reviewSummary=document.getElementById('reviewSummary');
+const status=document.getElementById('status'), preview=document.getElementById('preview'), debugEl=document.getElementById('debug'), cameraSel=document.getElementById('camera'), calibGuide=document.getElementById('calibGuide'), matrixReport=document.getElementById('matrixReport'), reviewSummary=document.getElementById('reviewSummary'), boardCrop=document.getElementById('boardCrop'), calibrationCrop=document.getElementById('calibrationCrop');
+const dashboardMode=document.body.classList.contains('dashboard');
 const ICON_TEMPLATES=buildIconTemplates();
-function setStatus(t){status.textContent=t}
+function setStatus(t){
+  status.textContent=t;
+  if(window.parent!==window)window.parent.postMessage({type:'asma-scanner-status',status:t},location.origin);
+}
+function savedCalibrationStatus(){
+  const colors=calibrationColorCount(),base=!!boardCalibration;
+  if(colors===MARKER_COLORS.length&&base)return 'Calibrazione salvata attiva: base e 8 colori.';
+  if(colors||base)return `Calibrazione parziale salvata: ${base?'base pronta':'base mancante'}, ${colors}/8 colori.`;
+  return 'Calibrazione non ancora salvata.';
+}
 document.addEventListener('asma-cv-ready',()=>{
-  setStatus('OpenCV.js pronto. Puoi leggere la scacchiera.');
+  setStatus(`OpenCV.js pronto. ${savedCalibrationStatus()}`);
   if(staticFrame&&corners.length===4)requestAnimationFrame(()=>scan(false));
 });
 document.addEventListener('asma-cv-error',()=>setStatus(`OpenCV.js non disponibile: ${window.asmaCvError||'errore di caricamento'}`));
-if(window.asmaCvReady)setStatus('OpenCV.js pronto. Puoi leggere la scacchiera.');
+if(window.asmaCvReady)setStatus(`OpenCV.js pronto. ${savedCalibrationStatus()}`);
 function emptyVision(){return Array.from({length:N},()=>Array.from({length:N},()=>({dark:false,pawn:false,possiblePawn:false,cat:null,terrain:null,jolly:null,score:0,presenceConfidence:0,colorConfidence:0,shapeConfidence:0,reviewReasons:null,colorDisagreement:null,debug:null,color:null,top:[],code:null,ink:0})))}
 function calibrationColorCount(){return colorCalibration?.colors?.length||0}
-function redCalibrationTargets(){return MARKER_SHAPES.map((shape,r)=>({r,c:0,cat:`rosso-${shape.id}`,label:shape.name,hex:MARKER_COLORS[0].hex}))}
+function redCalibrationTargets(){return MARKER_SHAPES.map((shape,index)=>({r:CALIBRATION_ROWS[index],c:0,cat:`rosso-${shape.id}`,colorId:'rosso',label:shape.name,hex:MARKER_COLORS[0].hex}))}
 function matrixCalibrationTargets(){
-  return MARKER_SHAPES.flatMap((shape,r)=>MARKER_COLORS.map((color,c)=>({r,c,cat:`${color.id}-${shape.id}`,label:shape.name,hex:color.hex})));
+  return MARKER_SHAPES.flatMap((shape,index)=>MARKER_COLORS.map((color,c)=>({r:CALIBRATION_ROWS[index],c,cat:`${color.id}-${shape.id}`,colorId:color.id,label:shape.name,hex:color.hex})));
 }
-function renderCalibrationGuide(targets=matrixCalibrationTargets(),title='Calibrazione 8 colori',description='Metti le cinque forme sulle prime cinque righe. Ogni colonna deve mantenere lo stesso colore.'){
+function renderCalibrationGuide(targets=matrixCalibrationTargets(),title='Calibrazione 8 colori',description='Metti due pedine nelle prime due righe, poi una nelle righe 4, 6 e 8. Ogni colonna deve mantenere lo stesso colore.'){
   const byCell=new Map(targets.map(t=>[`${t.r},${t.c}`,t]));
   calibGuide.innerHTML=`<h2>${title}</h2><p>${description}</p><div class="guide-grid">${
     Array.from({length:N*N},(_,i)=>{
@@ -248,6 +285,14 @@ function viewToVideo(x,y){
 function videoToView(p){
   const f=fit();return {x:f.ox+p.x*f.s,y:f.oy+p.y*f.s};
 }
+function drawCameraFrame(targetCtx,source,x,y,width,height,mirrored){
+  if(!mirrored){targetCtx.drawImage(source,x,y,width,height);return}
+  targetCtx.save();
+  targetCtx.translate(x+width,y);
+  targetCtx.scale(-1,1);
+  targetCtx.drawImage(source,0,0,width,height);
+  targetCtx.restore();
+}
 function drawLoop(){
   const rect=canvas.getBoundingClientRect();
   canvas.width=rect.width*devicePixelRatio;canvas.height=rect.height*devicePixelRatio;
@@ -259,11 +304,29 @@ function drawLoop(){
     if(rawCanvas.width!==sourceWidth||rawCanvas.height!==sourceHeight){
       rawCanvas.width=sourceWidth;rawCanvas.height=sourceHeight;
     }
-    rawCtx.drawImage(source,0,0,rawCanvas.width,rawCanvas.height);
-    ctx.drawImage(source,f.ox,f.oy,f.w,f.h);
+    const mirrorLiveCamera=!staticFrame;
+    drawCameraFrame(rawCtx,source,0,0,rawCanvas.width,rawCanvas.height,mirrorLiveCamera);
+    drawCameraFrame(ctx,source,f.ox,f.oy,f.w,f.h,mirrorLiveCamera);
   }
+  drawDashboardCrop();
   drawOverlay();
   requestAnimationFrame(drawLoop);
+}
+let lastDashboardCrop=0;
+function drawDashboardCrop(){
+  if(!dashboardMode)return;
+  const ready=corners.length===4&&window.asmaCvReady&&rawCanvas.width&&rawCanvas.height;
+  canvas.style.visibility=ready?'hidden':'visible';
+  boardCrop.style.display=ready?'block':'none';
+  if(!ready||performance.now()-lastDashboardCrop<100)return;
+  let board=null;
+  try{
+    board=rectifiedBoardMat();
+    boardCrop.width=board.cols;boardCrop.height=board.rows;
+    cv.imshow(boardCrop,board);
+    if(document.getElementById('calibrationDialog').open)cv.imshow(calibrationCrop,board);
+    lastDashboardCrop=performance.now();
+  }catch(e){}finally{if(board)board.delete()}
 }
 function drawOverlay(){
   ctx.lineWidth=2;ctx.strokeStyle=trackQuality>.55?'#87d37c':'#ffb24d';ctx.fillStyle=ctx.strokeStyle;
@@ -658,6 +721,111 @@ function sampleKnownTokenColor(r,c){
   const spread=pts.reduce((a,p)=>a+Math.hypot(p.r-rgb.r,p.g-rgb.g,p.b-rgb.b),0)/pts.length;
   return {...rgb,count:pts.length,spread};
 }
+function calibrationTargetCell(target,rotation){
+  if(rotation===1)return {r:target.c,c:N-1-target.r};
+  if(rotation===2)return {r:N-1-target.r,c:N-1-target.c};
+  if(rotation===3)return {r:N-1-target.c,c:target.r};
+  return {r:target.r,c:target.c};
+}
+function orientedCalibrationTargets(targets,rotation){
+  return targets.map(target=>({...target,...calibrationTargetCell(target,rotation)}));
+}
+function rawCalibrationAnnulus(board,{x,y,radius}){
+  const pts=[],step=Math.max(1,Math.round(radius/18));
+  for(let yy=Math.floor(y-radius);yy<=Math.ceil(y+radius);yy+=step)for(let xx=Math.floor(x-radius);xx<=Math.ceil(x+radius);xx+=step){
+    if(xx<0||yy<0||xx>=board.cols||yy>=board.rows)continue;
+    const rr=Math.hypot(xx-x,yy-y)/radius;
+    if(rr<.50||rr>.88)continue;
+    const i=(yy*board.cols+xx)*4,p={r:board.data[i],g:board.data[i+1],b:board.data[i+2]};
+    p.l=(p.r+p.g+p.b)/3;
+    const sat=Math.max(p.r,p.g,p.b)-Math.min(p.r,p.g,p.b);
+    if(sat>=12&&p.l>28&&p.l<248)pts.push(p);
+  }
+  if(pts.length<12)return null;
+  const median=k=>quantile(pts.map(point=>point[k]).sort((a,b)=>a-b),.5);
+  const rgb={r:median('r'),g:median('g'),b:median('b'),l:median('l'),count:pts.length};
+  rgb.spread=pts.reduce((sum,point)=>sum+Math.hypot(point.r-rgb.r,point.g-rgb.g,point.b-rgb.b),0)/pts.length;
+  return rgb;
+}
+function calibrationCellSample(board,row,column){
+  let roi=null,gray=null,blur=null,circles=null;
+  try{
+    const cell=BOARD_SCAN_SIZE/N;
+    const pad=Math.round(cell*.12);
+    const left=Math.max(0,Math.floor(column*cell)-pad),top=Math.max(0,Math.floor(row*cell)-pad);
+    const right=Math.min(board.cols,Math.ceil((column+1)*cell)+pad),bottom=Math.min(board.rows,Math.ceil((row+1)*cell)+pad);
+    roi=board.roi(new cv.Rect(left,top,right-left,bottom-top));
+    gray=new cv.Mat();blur=new cv.Mat();circles=new cv.Mat();
+    cv.cvtColor(roi,gray,cv.COLOR_RGBA2GRAY);cv.medianBlur(gray,blur,5);
+    cv.HoughCircles(blur,circles,cv.HOUGH_GRADIENT,1.1,cell*.24,82,13,Math.round(cell*.22),Math.round(cell*.49));
+    let best=null;
+    for(let i=0;i<circles.cols;i++){
+      const x=circles.data32F[i*3]+left,y=circles.data32F[i*3+1]+top,radius=circles.data32F[i*3+2];
+      const cx=x/cell-column-.5,cy=y/cell-row-.5,centerDistance=Math.hypot(cx,cy);
+      if(Math.abs(cx)>.54||Math.abs(cy)>.54)continue;
+      const rgb=rawCalibrationAnnulus(board,{x,y,radius});
+      if(!rgb)continue;
+      const candidate={...rgb,row,column,x,y,radius,centerDistance,source:'cell-circle'};
+      if(!best||centerDistance<best.centerDistance)best=candidate;
+    }
+    return best;
+  }finally{
+    for(const item of [roi,gray,blur,circles])if(item)try{item.delete()}catch(e){}
+  }
+}
+function detectCalibrationTokenSamples(board){
+  let ownedBoard=null,gray=null,blur=null,circles=null;
+  try{
+    if(!board){ownedBoard=rectifiedBoardMat();board=ownedBoard}
+    gray=new cv.Mat();blur=new cv.Mat();circles=new cv.Mat();
+    cv.cvtColor(board,gray,cv.COLOR_RGBA2GRAY);cv.medianBlur(gray,blur,5);
+    const cell=BOARD_SCAN_SIZE/N;
+    cv.HoughCircles(blur,circles,cv.HOUGH_GRADIENT,1.15,cell*.36,86,14,Math.round(cell*.21),Math.round(cell*.49));
+    const samples=new Map();
+    for(let i=0;i<circles.cols;i++){
+      const x=circles.data32F[i*3],y=circles.data32F[i*3+1],radius=circles.data32F[i*3+2];
+      const row=Math.max(0,Math.min(N-1,Math.floor(y/cell))),column=Math.max(0,Math.min(N-1,Math.floor(x/cell)));
+      const centerDistance=Math.hypot(x/cell-column-.5,y/cell-row-.5);
+      if(centerDistance>.48)continue;
+      const rgb=rawCalibrationAnnulus(board,{x,y,radius});
+      if(!rgb)continue;
+      const key=`${row},${column}`,previous=samples.get(key);
+      if(!previous||centerDistance<previous.centerDistance)samples.set(key,{...rgb,row,column,x,y,radius,centerDistance,source:'global-circle'});
+    }
+    return samples;
+  }finally{
+    for(const item of [ownedBoard,gray,blur,circles])if(item)try{item.delete()}catch(e){}
+  }
+}
+function chooseCalibrationOrientation(targets,samples){
+  const choices=[];
+  for(let rotation=0;rotation<4;rotation++){
+    let found=0,offset=0;
+    for(const target of orientedCalibrationTargets(targets,rotation)){
+      const sample=samples.get(`${target.r},${target.c}`);
+      if(!sample)continue;
+      found++;offset+=sample.centerDistance||0;
+    }
+    choices.push({rotation,found,score:(targets.length-found)*100+(found?offset/found:999)});
+  }
+  return choices.sort((a,b)=>a.score-b.score||b.found-a.found)[0];
+}
+function captureSupervisedCalibration(targets){
+  let board=null;
+  try{
+    board=rectifiedBoardMat();
+    const samples=detectCalibrationTokenSamples(board);
+    const orientation=chooseCalibrationOrientation(targets,samples);
+    const oriented=orientedCalibrationTargets(targets,orientation.rotation).map(target=>{
+      const key=`${target.r},${target.c}`;
+      const sample=calibrationCellSample(board,target.r,target.c)||samples.get(key)||null;
+      if(sample)samples.set(key,sample);
+      return {...target,sample};
+    });
+    return {orientation,samples,targets:oriented};
+  }finally{if(board)board.delete()}
+}
+function calibrationOrientationName(rotation){return ['0°','90°','180°','270°'][rotation]||'0°'}
 function buildBoardVision(samples){
   if(!window.asmaCvReady||!window.cv)return null;
   return buildGlobalBoardVision(samples);
@@ -889,11 +1057,13 @@ function aiTokenCrops(maxConfidence=Infinity){
 }
 async function requestAiVision(mode,image,tokens=[]){
   let response;
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),45000);
   try{
-    response=await fetch('/api/vision-scan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode,image,tokens,calibration:aiCalibrationContext()})});
-  }catch{
-    throw new Error('Server AI non raggiungibile. Apri lo scanner tramite ai-server.mjs.');
-  }
+    response=await fetch('/api/vision-scan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode,image,tokens,calibration:aiCalibrationContext()}),signal:controller.signal});
+  }catch(error){
+    if(error?.name==='AbortError')throw new Error('Timeout AI: mantengo la lettura locale.');
+    throw new Error('Server AI non raggiungibile: mantengo la lettura locale.');
+  }finally{clearTimeout(timeout)}
   const payload=await response.json().catch(()=>({}));
   if(!response.ok)throw new Error(payload.error||`Server AI: HTTP ${response.status}`);
   lastAiResult={mode,model:payload.model,result:payload.result,time:new Date().toISOString()};
@@ -906,9 +1076,14 @@ function calibratedColorMask(board){
     const i=(y*board.cols+x)*4,p={r:board.data[i],g:board.data[i+1],b:board.data[i+2]};
     p.l=(p.r+p.g+p.b)/3;
     const sat=Math.max(p.r,p.g,p.b)-Math.min(p.r,p.g,p.b);
-    if(sat<32||p.l<34||p.l>244)continue;
-    let best=Infinity;
-    for(const ref of simpleRefs)for(const sample of ref.samples)best=Math.min(best,colorDistance(p,sample));
+    if(p.l<34||p.l>244)continue;
+    let best=Infinity,bestSample=null;
+    for(const ref of simpleRefs)for(const sample of ref.samples){
+      const distance=colorDistance(p,sample);
+      if(distance<best){best=distance;bestSample=sample}
+    }
+    const sampleSat=bestSample?Math.max(bestSample.r,bestSample.g,bestSample.b)-Math.min(bestSample.r,bestSample.g,bestSample.b):999;
+    if(sat<24&&sampleSat>=45)continue;
     const boardD=distanceFromBoardAt(p,x,y,board.cols,board.rows);
     if(best<72&&(!boardCalibration||boardD>28))mask.data[y*board.cols+x]=255;
   }
@@ -916,6 +1091,10 @@ function calibratedColorMask(board){
 }
 function annulusColorProfile(board,{x,y,radius}){
   const samples=[];
+  const neutralSamples=colorRefs().flatMap(ref=>(ref.sampleRefs?.length?ref.sampleRefs:[ref.ref]).filter(sample=>{
+    if(!sample)return false;
+    return Math.max(sample.r,sample.g,sample.b)-Math.min(sample.r,sample.g,sample.b)<45;
+  }));
   const step=Math.max(1,Math.round(radius/18));
   for(let yy=Math.floor(y-radius);yy<=Math.ceil(y+radius);yy+=step)for(let xx=Math.floor(x-radius);xx<=Math.ceil(x+radius);xx+=step){
     if(xx<0||yy<0||xx>=board.cols||yy>=board.rows)continue;
@@ -924,7 +1103,8 @@ function annulusColorProfile(board,{x,y,radius}){
     const i=(yy*board.cols+xx)*4,p={r:board.data[i],g:board.data[i+1],b:board.data[i+2]};
     p.l=(p.r+p.g+p.b)/3;
     const sat=Math.max(p.r,p.g,p.b)-Math.min(p.r,p.g,p.b);
-    if(sat>=24&&p.l>32&&p.l<246)samples.push(p);
+    const neutralMatch=neutralSamples.some(sample=>colorDistance(p,sample)<72);
+    if((sat>=24||neutralMatch)&&p.l>32&&p.l<246)samples.push(p);
   }
   if(samples.length<12)return {color:null,coverage:0,rgb:null};
   const medianChannel=k=>quantile(samples.map(p=>p[k]).sort((a,b)=>a-b),.5);
@@ -1589,15 +1769,15 @@ function mergeAiBoard(result,tokenMeta=[]){
   return {reported:cells.size,tokens:metadata.size,added,removed,completed,corrected,colorCorrected,uncertain,ignored,checked};
 }
 async function verifyUncertainWithAi(){
-  const tokens=aiTokenCrops(.90);
+  const tokens=aiTokenCrops();
   if(!tokens.length){
     const found=boardVision.flat().filter(cell=>cell.pawn).length;
-    setStatus(`Lettura completata: ${found} pedine, tutte con confidenza almeno 0,90.`);
+    setStatus(`Lettura completata: ${found} pedine.`);
     return true;
   }
   const button=document.getElementById('scan');button.disabled=true;
   try{
-    setStatus(`Controllo AI automatico su ${tokens.length} celle dubbie...`);
+    setStatus(`Lettura locale pronta. Controllo AI non bloccante su ${tokens.length} pedine e candidati...`);
     const result=await requestAiVision('board',rectifiedBoardImage(),tokens);
     const merged=mergeAiBoard({cells:[],tokens:result.tokens||[]},tokens);
     setStatus(`AI: ${merged.removed} falsi positivi rimossi, ${merged.added} pedine recuperate, ${merged.colorCorrected} colori corretti, ${merged.completed} forme completate, ${merged.corrected} forme corrette, ${merged.uncertain} celle ancora dubbie.`);
@@ -1607,11 +1787,14 @@ async function verifyUncertainWithAi(){
     return false;
   }finally{button.disabled=false}
 }
-async function scanWithAutomaticAi(){
+async function scanWithAutomaticAi(sendUpdates=false){
   const ok=staticFrame?scan(false):await scanStable();
   if(!ok)return false;
+  if(sendUpdates)send(true);
   if(!document.getElementById('autoAi').checked)return true;
-  return verifyUncertainWithAi();
+  await verifyUncertainWithAi();
+  if(sendUpdates)send(true);
+  return true;
 }
 async function verifyWithAi(){
   if(corners.length!==4){setStatus('Prima rileva o imposta i bordi della scacchiera.');return}
@@ -1636,7 +1819,7 @@ function validAiCorners(points,width,height){
   const edges=points.map((point,i)=>Math.hypot(point.x-points[(i+1)%4].x,point.y-points[(i+1)%4].y));
   return area>width*height*.045&&Math.min(...edges)>Math.min(width,height)*.12;
 }
-async function proposeAiCorners(){
+async function proposeAiCorners({fallbackToLocal=false}={}){
   if(!rawCanvas.width||!rawCanvas.height){setStatus('Avvia prima la camera.');return}
   const button=document.getElementById('aiCorners');button.disabled=true;
   try{
@@ -1647,7 +1830,15 @@ async function proposeAiCorners(){
     corners=points;trackQuality=Math.min(.9,Number(result.confidence)||.5);manualMode=false;
     document.getElementById('manual').classList.remove('active');
     setStatus(`Bordi AI proposti (${Math.round(trackQuality*100)}%). Trascina i quattro punti se serve, poi rileva le pedine.`);
-  }catch(error){setStatus(`Ricerca bordi AI fallita: ${error?.message||error}`)}
+    return true;
+  }catch(error){
+    if(fallbackToLocal){
+      const local=detectOnce();
+      setStatus(local?`AI bordi non disponibile (${error?.message||error}). Bordo trovato localmente; correggilo a mano se serve.`:`Ricerca bordi fallita con AI e rilevatore locale: ${error?.message||error}`);
+      return local;
+    }
+    setStatus(`Ricerca bordi AI fallita: ${error?.message||error}`);return false;
+  }
   finally{button.disabled=false}
 }
 function renderPreview(){
@@ -1770,15 +1961,16 @@ function calibrateBoard(){
 }
 function calibrateColors(){
   if(corners.length!==4){setStatus('Prima calibra gli angoli della scacchiera.');return false}
-  renderCalibrationGuide();
+  if(!window.asmaCvReady||!window.cv){setStatus('OpenCV.js non è ancora pronto.');return false}
+  let capture;
+  try{capture=captureSupervisedCalibration(matrixCalibrationTargets())}
+  catch(error){setStatus(`Calibrazione colori fallita: ${error?.message||error}`);return false}
+  renderCalibrationGuide(capture.targets,'Calibrazione 8 colori',`Orientamento rilevato ${calibrationOrientationName(capture.orientation.rotation)}. Ogni campione viene assegnato al colore noto della sua posizione.`);
   const learned=[];
   const details=[];
   for(let c=0;c<N;c++){
-    const spec=COLOR_TEST_COLUMNS[c], pts=[];
-    for(let r=0;r<MARKER_SHAPES.length;r++){
-      const sample=sampleKnownTokenColor(r,c);
-      if(sample)pts.push(sample);
-    }
+    const spec=COLOR_TEST_COLUMNS[c];
+    const pts=capture.targets.filter(target=>target.colorId===spec.id&&target.sample).map(target=>target.sample);
     if(pts.length<3){
       details.push(`${spec.id}: ${pts.length}/${MARKER_SHAPES.length}`);
       continue;
@@ -1795,29 +1987,29 @@ function calibrateColors(){
     });
     details.push(`${spec.id}: ${pts.length}/${MARKER_SHAPES.length}`);
   }
-  if(learned.length<5){
-    setStatus('Calibrazione debole: '+details.join(' · '));
+  if(learned.length!==MARKER_COLORS.length){
+    setStatus(`Calibrazione annullata: servono tutti gli 8 colori. Nessun riferimento e stato sostituito. `+details.join(' · '));
     return false;
   }
-  colorCalibration={mode:'supervised-columns-v2',createdAt:new Date().toISOString(),columns:COLOR_TEST_COLUMNS,colors:learned};
+  colorCalibration={mode:'supervised-position-v3',createdAt:new Date().toISOString(),orientation:capture.orientation.rotation,columns:COLOR_TEST_COLUMNS,colors:learned};
   localStorage.setItem(COLOR_CAL_KEY,JSON.stringify(colorCalibration));
   assumeFullGrid=false;
-  setStatus('Colori calibrati: '+details.join(' · '));
+  setStatus(`Colori calibrati come dichiarati, orientamento ${calibrationOrientationName(capture.orientation.rotation)}: `+details.join(' · '));
   scan(true);
   return true;
 }
 function calibrateRed(){
   if(corners.length!==4){setStatus('Prima calibra gli angoli della scacchiera.');return false}
-  renderCalibrationGuide(redCalibrationTargets(),'Calibrazione rosso','Metti le cinque forme rosse nella prima colonna, dall alto verso il basso.');
+  if(!window.asmaCvReady||!window.cv){setStatus('OpenCV.js non è ancora pronto.');return false}
+  let capture;
+  try{capture=captureSupervisedCalibration(redCalibrationTargets())}
+  catch(error){setStatus(`Calibrazione rosso fallita: ${error?.message||error}`);return false}
+  renderCalibrationGuide(capture.targets,'Calibrazione rosso',`Orientamento rilevato ${calibrationOrientationName(capture.orientation.rotation)}. Queste pedine vengono registrate come rosse, senza riclassificarle.`);
   const red=MARKER_COLORS.find(c=>c.id==='rosso');
   const spec={kind:'place',cat:'rosso-quadrato',id:'rosso',hex:red.hex};
-  const pts=[];
-  for(const target of redCalibrationTargets()){
-    const sample=sampleKnownTokenColor(target.r,target.c);
-    if(sample)pts.push(sample);
-  }
+  const pts=capture.targets.filter(target=>target.sample).map(target=>target.sample);
   if(pts.length<3){
-    setStatus(`Calibrazione rosso debole: ${pts.length}/${MARKER_SHAPES.length}. Metti le 5 pedine rosse nella prima colonna, dall'alto.`);
+    setStatus(`Calibrazione rosso debole: ${pts.length}/${MARKER_SHAPES.length}. Vedo poche pedine nella disposizione prevista.`);
     return false;
   }
   const avg=k=>pts.reduce((a,p)=>a+p[k],0)/pts.length;
@@ -1830,29 +2022,31 @@ function calibrateRed(){
     samples:pts.length,
     sampleRefs:pts.map(p=>({r:+p.r.toFixed(1),g:+p.g.toFixed(1),b:+p.b.toFixed(1),l:+p.l.toFixed(1)}))
   }];
-  colorCalibration={mode:'supervised-red-row-v1',createdAt:new Date().toISOString(),columns:[spec],colors:learned};
+  colorCalibration={mode:'supervised-red-position-v2',createdAt:new Date().toISOString(),orientation:capture.orientation.rotation,columns:[spec],colors:learned};
   localStorage.setItem(COLOR_CAL_KEY,JSON.stringify(colorCalibration));
   assumeFullGrid=false;
-  setStatus(`Rosso calibrato: ${pts.length}/${MARKER_SHAPES.length} campioni. Ora premi Rileva pedine sul test forme rosse.`);
+  setStatus(`Rosso calibrato come rosso: ${pts.length}/${MARKER_SHAPES.length} campioni, orientamento ${calibrationOrientationName(capture.orientation.rotation)}.`);
   return true;
 }
-function matrixExpectedCat(r,c){
-  return r<MARKER_SHAPES.length?`${MARKER_COLORS[c].id}-${MARKER_SHAPES[r].id}`:null;
+function matrixExpectedTarget(r,c){
+  const rotation=Number(colorCalibration?.orientation)||0;
+  return orientedCalibrationTargets(matrixCalibrationTargets(),rotation).find(target=>target.r===r&&target.c===c)||null;
 }
 function evaluateMatrixResult(){
   let presence=0,colorCorrect=0,shapeCorrect=0,exact=0,falsePositives=0;
   const errors=[];
   const perColor=MARKER_COLORS.map(color=>({color,presence:0,colorCorrect:0,shapeCorrect:0,exact:0}));
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){
-    const expected=matrixExpectedCat(r,c),seen=boardVision[r][c];
-    if(!expected){if(seen.pawn)falsePositives++;continue}
-    const expectedColor=MARKER_COLORS[c].id,expectedShape=MARKER_SHAPES[r].id;
+    const target=matrixExpectedTarget(r,c),expected=target?.cat||null,seen=boardVision[r][c];
+    if(!target){if(seen.pawn)falsePositives++;continue}
+    const expectedColor=target.colorId,expectedShape=MARKER_SHAPES.find(shape=>expected.endsWith(`-${shape.id}`))?.id;
+    const colorResult=perColor.find(item=>item.color.id===expectedColor);
     const seenColor=seen.color?.id||MARKER_COLORS.find(candidate=>seen.cat?.startsWith(`${candidate.id}-`))?.id||null;
     const seenShape=markerShapeFromCat(seen.cat);
-    if(seen.pawn){presence++;perColor[c].presence++}
-    if(seen.pawn&&seenColor===expectedColor){colorCorrect++;perColor[c].colorCorrect++}
-    if(seen.pawn&&seenShape===expectedShape){shapeCorrect++;perColor[c].shapeCorrect++}
-    if(seen.pawn&&seenColor===expectedColor&&seenShape===expectedShape){exact++;perColor[c].exact++}
+    if(seen.pawn){presence++;colorResult.presence++}
+    if(seen.pawn&&seenColor===expectedColor){colorCorrect++;colorResult.colorCorrect++}
+    if(seen.pawn&&seenShape===expectedShape){shapeCorrect++;colorResult.shapeCorrect++}
+    if(seen.pawn&&seenColor===expectedColor&&seenShape===expectedShape){exact++;colorResult.exact++}
     else errors.push({row:r,column:c,expected,actual:seen.cat||seenColor||null,pawn:!!seen.pawn,presenceConfidence:+(seen.presenceConfidence||0).toFixed(2),colorConfidence:+(seen.colorConfidence||0).toFixed(2),shapeConfidence:+(seen.shapeConfidence||0).toFixed(2)});
   }
   const pct=value=>Math.round(value/(MARKER_COLORS.length*MARKER_SHAPES.length)*100);
@@ -1880,7 +2074,8 @@ function send(silent=false){
   const payload={source:'camera-scanner',time:Date.now(),grid:lastGrid};
   try{localStorage.setItem(KEY,JSON.stringify(payload))}catch(e){}
   try{new BroadcastChannel(CH).postMessage(payload)}catch(e){}
-  if(!silent)setStatus('Inviata. Torna alla mappa e premi Genera.');
+  if(window.parent!==window)window.parent.postMessage({type:'asma-scanner-grid',payload},location.origin);
+  if(!silent)setStatus('Acquisizione inviata alla mappa.');
 }
 function nearestCorner(viewX,viewY){
   let best={i:-1,d:Infinity};
@@ -1926,6 +2121,10 @@ document.getElementById('manual').onclick=e=>{
 document.getElementById('scan').onclick=()=>scanWithAutomaticAi();
 document.getElementById('aiScan').onclick=()=>verifyWithAi();
 document.getElementById('aiCorners').onclick=()=>proposeAiCorners();
+const calibrationDialog=document.getElementById('calibrationDialog');
+document.getElementById('openCalibration').onclick=()=>calibrationDialog.showModal();
+document.getElementById('closeCalibration').onclick=()=>calibrationDialog.close();
+calibrationDialog.addEventListener('close',()=>parent.postMessage({type:'asma-scanner-calibration',open:false},location.origin));
 const autoAiToggle=document.getElementById('autoAi');
 autoAiToggle.checked=localStorage.getItem(AUTO_AI_KEY)!=='0';
 autoAiToggle.onchange=()=>localStorage.setItem(AUTO_AI_KEY,autoAiToggle.checked?'1':'0');
@@ -2008,10 +2207,32 @@ document.getElementById('loadSnapshot').onchange=async event=>{
   }finally{event.target.value=''}
 };
 document.getElementById('send').onclick=()=>send(false);
+window.addEventListener('message',async event=>{
+  if(event.origin!==location.origin)return;
+  if(event.data?.type==='asma-scanner-stop'){
+    if(stream)stream.getTracks().forEach(track=>track.stop());
+    stream=null;video.srcObject=null;return;
+  }
+  if(event.data?.type!=='asma-scanner-command')return;
+  const command=event.data.command;
+  if(command==='start')return start().catch(error=>setStatus('Errore camera: '+error.message));
+  if(command==='track')return proposeAiCorners({fallbackToLocal:true});
+  if(command==='manual')return document.getElementById('manual').click();
+  if(command==='scan')return scanWithAutomaticAi(true);
+  if(command==='open-calibration'){
+    if(!calibrationDialog.open)calibrationDialog.showModal();
+    parent.postMessage({type:'asma-scanner-calibration',open:true},location.origin);return;
+  }
+  if(command==='close-calibration'){
+    if(calibrationDialog.open)calibrationDialog.close();return;
+  }
+  if(command==='status')setStatus(savedCalibrationStatus());
+});
 listCameras().catch(()=>{});
 renderCalibrationGuide();
 renderPreview();
 document.getElementById('calibrateBoard').classList.toggle('active',!!boardCalibration);
+setStatus(savedCalibrationStatus());
 const snapshotUrl=new URLSearchParams(location.search).get('snapshot');
 if(snapshotUrl)fetch(snapshotUrl).then(response=>response.json()).then(loadSnapshotPayload).catch(error=>setStatus(`Test snapshot fallito: ${error?.message||error}`));
 </script>

@@ -26,7 +26,7 @@ const toBoard=(x)=>(x-PAD)/CELL;
    (vedi tessuto.js/autoBridges) — vedi la cronologia del prototipo per il
    perche' (bug della "retta grigia" e citta' spaccate in due). */
 const CATS=[
- {id:'chiesa',name:'Chiesa',group:'sacro',icon:'church'},
+ {id:'chiesa',name:'Luogo religioso',group:'sacro',icon:'church'},
  {id:'cimitero',name:'Cimitero',group:'sacro',icon:'grave'},
  {id:'monumento',name:'Monumento',group:'sacro',icon:'obelisk'},
  {id:'municipio',name:'Municipio',group:'civico',icon:'townhall',civic:2},
@@ -37,6 +37,7 @@ const CATS=[
  {id:'porto',name:'Porto',group:'scambio',icon:'anchor',needsWater:true},
  {id:'biblioteca',name:'Biblioteca',group:'cultura',icon:'book'},
  {id:'teatro',name:'Teatro',group:'cultura',icon:'theatre'},
+ {id:'cinema',name:'Cinema',group:'cultura',icon:'projector'},
  {id:'giardino',name:'Giardino',group:'verde',icon:'tree'},
  {id:'fontana',name:'Fontana',group:'verde',icon:'fountain'},
  {id:'osteria',name:'Osteria',group:'quotid',icon:'mug'},
@@ -44,9 +45,23 @@ const CATS=[
  {id:'locale',name:'Locale',group:'notte',icon:'note'},
 ];
 const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
+// categorie "generiche": il giocatore sceglie un sottotipo (vedi pannello
+// pedine in ui.js) invece di un'unica etichetta fissa. 'chiesa' resta
+// l'id tecnico interno (footprint, colore, logiche di sagrato...) — cambia
+// solo il NOME mostrato, scelto tra queste opzioni o libero ("Altro…").
+const CUSTOM_TYPES={
+  chiesa:{options:['Chiesa','Cattedrale','Basilica','Cappella','Santuario','Moschea','Sinagoga','Tempio','Monastero']},
+};
 const GROUP_NAME={sacro:'Sacro',civico:'del Palazzo',scambio:'dei Mercanti',
   cultura:'delle Arti',verde:'dei Giardini',quotid:'Vecchio',notte:'della Notte'};
-const TERRAINS={water:{name:'Acqua',color:'#3b6f86'},mountain:{name:'Montagna',color:'#7a5a3a'},hill:{name:'Collina',color:'#6f8a4a'}};
+const TERRAINS={water:{name:'Acqua',color:'#3b6f86'},mountain:{name:'Montagna',color:'#7a5a3a'},hill:{name:'Collina',color:'#6f8a4a'},
+  // 'green' non ha un pennello proprio in console (vedi buildConsole in
+  // ui.js, lo salta apposta): esiste solo come bersaglio dei marker verdi
+  // dello scanner. E' un tipo di terreno valido per non rompere la
+  // validazione in normalizeExternalCell, ma non un pulsante da cliccare —
+  // e' l'agglomerato di celle, non la singola cella, a decidere cosa
+  // diventa (giardino / parco / collina / montagna), vedi main.js.
+  green:{name:'Verde',color:'#3f7d3f'}};
 const NJOLLY=5;
 const ANCHOR_CATS=new Set(['piazza','giardino','cimitero']);
 
@@ -87,6 +102,16 @@ function comps(cells){
   }
   return out;
 }
+// un fiume esiste solo se attraversa DAVVERO la citta' da un bordo
+// all'opposto — non basta piu' essere una diagonale elegante. La vecchia
+// regola promuoveva a 'fiume' qualunque forma abbastanza allungata anche
+// se corta e isolata in un angolo: in waterField quella forma, non
+// trovando ne' un bordo opposto ne' un fiume vicino a cui agganciarsi come
+// affluente, veniva comunque estesa fino al bordo come un SECONDO fiume
+// indipendente — che la ricorsione del tessuto (rivers[0] soltanto) non
+// taglia mai, quindi appariva disegnato sopra le case. Chi non attraversa
+// resta un lago qui; potra' comunque diventare un vero affluente piu'
+// sotto, in waterField, se abbastanza vicino a un fiume che attraversa.
 function classWater(cells){
   if(cells.length===1)return 'laghetto';
   const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
@@ -100,13 +125,7 @@ function classWater(cells){
     {n:cells.filter(([,c])=>c===N-1).length,along:sr,deep:sc},
   ];
   if(edgeRuns.some(e=>e.n>=2&&e.along>=Math.max(1,e.deep*1.25)))return 'mare';
-  const mr=rs.reduce((a,v)=>a+v,0)/cells.length, mc=cs.reduce((a,v)=>a+v,0)/cells.length;
-  let srr=0,scc=0,src=0;
-  for(const [r,c] of cells){const dr=r-mr,dc=c-mc;srr+=dr*dr;scc+=dc*dc;src+=dr*dc}
-  const tr=srr+scc, disc=Math.sqrt((srr-scc)**2+4*src*src);
-  const major=(tr+disc)/2, minor=(tr-disc)/2;
-  const elongation=Math.sqrt((major+.15)/(minor+.15));
-  return elongation>=1.75?'fiume':'lago';
+  return cells.length<=3?'laghetto':'lago';
 }
 
 /* ---------------- centro urbano, MST, campo urbanita' ---------------- */
@@ -226,25 +245,36 @@ function waterField(waterComps,places){
   const riverCps=waterComps.filter(cp=>cp.cls==='fiume'&&cp.cells.length>=2);
   const borderCount=cp=>cp.cells.filter(([r,c])=>r===0||r===N-1||c===0||c===N-1).length;
   riverCps.sort((a,b)=>(b.cells.length+borderCount(b)*3)-(a.cells.length+borderCount(a)*3));
+  // ogni riverCps ora attraversa DAVVERO la citta' (classWater lo garantisce):
+  // e' un tronco vero, si estende sempre fino al bordo. I laghi/laghetti
+  // invece NON attraversano — provano solo ad agganciarsi come affluenti a
+  // un tronco gia' tracciato, esattamente come un fiume corto faceva prima;
+  // se nessun tronco e' abbastanza vicino restano semplicemente un lago
+  // (rendering piu' sotto), invece di diventare un secondo fiume fantasma.
+  const lakeCps=waterComps.filter(cp=>(cp.cls==='lago'||cp.cls==='laghetto')&&cp.cells.length>=2)
+    .sort((a,b)=>b.cells.length-a.cells.length);
+  const candidates=[...riverCps.map(cp=>({cp,trunk:true})),...lakeCps.map(cp=>({cp,trunk:false}))];
   const rawAxes=[];
-  for(let ri=0;ri<riverCps.length;ri++){
-      const cp=riverCps[ri],cells=cp.cells;
+  for(const {cp,trunk} of candidates){
+      const cells=cp.cells;
       let path=riverAxis(cells),tributary=false;
-      const rs=cells.map(p=>p[0]),cs=cells.map(p=>p[1]);
-      const explicit=((rs.includes(0)&&rs.includes(N-1))||(cs.includes(0)&&cs.includes(N-1)));
-      if(ri===0||explicit){
+      if(trunk){
         path=extendRiverToFrame(path);
       }else{
         let join=null;
         for(const end of [0,path.length-1])for(const axis of rawAxes)for(const q of axis){
           const d=dist(path[end],q);if(!join||d<join.d)join={end,q,d};
         }
-        if(join&&join.d<5*CELL){
-          if(join.end===0)path.reverse();
-          path=[extendRiverPoint(path[0],path[1]),...path,join.q];
-          tributary=true;
-        }else path=extendRiverToFrame(path);
+        if(!join||join.d>=5*CELL)continue; // troppo lontano da un fiume vero: resta un lago
+        if(join.end===0)path.reverse();
+        path=[extendRiverPoint(path[0],path[1]),...path,join.q];
+        tributary=true;
       }
+      // un lago promosso ad affluente non e' piu' un lago: anche il nome
+      // deve seguirlo, altrimenti la sua etichetta lungo il fiume resta
+      // "Lago di ..." mentre e' disegnato come un ramo del fiume vero.
+      cp.cls='fiume';
+      cp.label='Fiume '+cp.proper;
       rawAxes.push(path);
       const sm=chaikinOpen(path,3);
       const even=[];
