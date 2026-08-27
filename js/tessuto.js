@@ -23,6 +23,22 @@ const MIN_BUILDING_DRAW=180;
 // in "cortile in verde" qui sotto) diventa giardino o resta cortile aperto.
 const RECT_ACCEPT=.34;
 const RAIL_HW=3.5;
+// Quanto lontano puo' stare l'aggancio di una rampa di ponte dall'impalcato.
+// 440 su una mappa larga 1100 e' larghissimo — permette "rampe" che
+// attraversano un terzo della citta' in retta sopra gli isolati — ma
+// stringerlo NON migliora la carta, sposta soltanto il difetto: un ponte
+// rifiutato lascia le due sponde scollegate e ci pensa reconnectOrphans,
+// che ricuce con un raccordo il quale GUADA il fiume. Misurato sui 24
+// scenari dell'audit, al variare della soglia:
+//
+//   CELL*4 (440):  12 strade dentro un edificio,  3 guadi
+//   CELL*2.5(275): 10 strade dentro un edificio,  6 guadi
+//   CELL*1.2(132): 10 strade dentro un edificio,  7 guadi
+//
+// Si scambia una strada sopra i palazzi con una strada dentro l'acqua, che
+// e' peggio. Resta 4 finche' la rampa non viene INSTRADATA lungo le strade
+// esistenti invece di essere tirata dritta: quella e' la correzione vera.
+const MAX_APPROACH=CELL*4;
 // due famiglie di "importanza" invece di una sola: sacro/culturale in
 // sfumature del viola di brand (#674292) — chiesa, teatro, biblioteca,
 // monumento, cinema, i luoghi contemplativi; civico/commerciale in
@@ -629,11 +645,30 @@ function subdivide(polyIn,depth,ctx,out){
    quartiere. */
 function autoBridges(river,cityPoly,streets){
   if(!river)return[];
-  const dense=densify(river.pts,20).filter(p=>inPoly(p,cityPoly));
-  if(dense.length<2)return[];
-  const span=[];
-  for(let i=0;i<dense.length-1;i++)span.push(dist(dense[i],dense[i+1]));
-  const total=span.reduce((a,b)=>a+b,0);
+  // Il fiume puo' USCIRE dalla citta' e RIENTRARE (un'ansa che scavalca il
+  // confine urbano): filtrare i punti dell'asse con inPoly lascia un array
+  // in cui due punti adiacenti possono stare ai due capi del pezzo saltato.
+  // Misurarne la distanza come se fossero consecutivi inventa lunghezza dal
+  // nulla — su Stress 106 un salto singolo da 502 su un "totale" di 1023,
+  // cioe' meta' del fiume che non esiste. Da li' discendeva tutto: count
+  // sovrastimato (5 ponti invece di 2) e i target che cadono dentro il
+  // salto ammassati tutti al suo bordo, cioe' tre ponti sovrapposti nello
+  // stesso punto. Si spezza percio' l'asse in TRATTE contigue e ogni tratta
+  // porta la sua lunghezza vera.
+  const inCity=densify(river.pts,20).map(p=>({p,in:inPoly(p,cityPoly)}));
+  const runs=[]; let cur=null;
+  for(const s of inCity){
+    if(!s.in){cur=null;continue}
+    if(!cur){cur=[];runs.push(cur)}
+    cur.push(s.p);
+  }
+  const legs=runs.filter(r=>r.length>=2).map(pts=>{
+    const span=[];
+    for(let i=0;i<pts.length-1;i++)span.push(dist(pts[i],pts[i+1]));
+    return{pts,span,len:span.reduce((a,b)=>a+b,0)};
+  }).filter(l=>l.len>0);
+  if(!legs.length)return[];
+  const total=legs.reduce((a,l)=>a+l.len,0);
   const count=Math.max(2,Math.min(6,Math.round(total/220)));
 
   // agganciare il ponte al punto piu' vicino in assoluto e' un errore: quel
@@ -677,17 +712,33 @@ function autoBridges(river,cityPoly,streets){
     }
     return best;
   };
+  // il target scorre la lunghezza VERA, cioe' le tratte una dopo l'altra
+  // saltando i pezzi fuori citta': cosi' i ponti si distribuiscono sul
+  // fiume che la citta' vede davvero, e due target consecutivi non possono
+  // piu' finire sullo stesso punto perche' in mezzo c'era un buco.
+  const pointAt=d=>{
+    let rest=d;
+    for(const leg of legs){
+      if(rest>leg.len&&leg!==legs[legs.length-1]){rest-=leg.len;continue}
+      let acc=0,idx=0;
+      while(idx<leg.span.length&&acc+leg.span[idx]<rest){acc+=leg.span[idx];idx++}
+      return leg.pts[Math.min(idx,leg.pts.length-1)];
+    }
+    return null;
+  };
   const bridges=[];
   for(let k=0;k<count;k++){
-    const target=(k+.5)/count*total;
-    let acc=0,idx=0;
-    while(idx<span.length&&acc+span[idx]<target){acc+=span[idx];idx++}
-    const p=dense[Math.min(idx,dense.length-1)];
+    const p=pointAt((k+.5)/count*total);
+    if(!p)continue;
     const info=riverAt(river,p);
     const bankA=[p[0]-info.nv[0]*info.hw,p[1]-info.nv[1]*info.hw];
     const bankB=[p[0]+info.nv[0]*info.hw,p[1]+info.nv[1]*info.hw];
     const nA=nearestOnSide(bankA,-1), nB=nearestOnSide(bankB,1);
-    if(!nA||!nB||nA.d>CELL*4||nB.d>CELL*4)continue;
+    if(!nA||!nB||nA.d>MAX_APPROACH||nB.d>MAX_APPROACH)continue;
+    // due ponti nello stesso punto sono un ponte disegnato tre volte: se il
+    // fiume in citta' e' corto, count puo' chiedere piu' campate di quante
+    // ne stiano.
+    if(bridges.some(b=>dist(b.deckA,bankA)<CELL*.8))continue;
     bridges.push({deckA:bankA,deckB:bankB,approachA:nA.q,approachB:nB.q});
   }
   return bridges;
@@ -804,7 +855,66 @@ function nearRiverbank(p,river){
   const info=riverAt(river,p);
   return info.d<info.hw+16;
 }
-function computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river){
+/* ---------------- invarianti geometrici ----------------
+   Regole che devono valere su OGNI carta, qualunque sia la scacchiera di
+   partenza. Non confrontano il risultato con un'attesa — impossibile, ogni
+   carta e' diversa — ma verificano che la geometria uscita rispetti le
+   poche regole che rendono una carta leggibile. Erano in mapDiagnostics
+   del prototipo v1 e si sono perse riscrivendo il tessuto: qui tornano
+   sulle strutture di v2 (segmenti a due punti invece di polilinee, fiume
+   {pts,hw} invece di campo scalare).
+
+   Il criterio di "cosa e' acqua" e' lo STESSO che usa il disegno
+   (segCrossesRiver, ponte ferroviario in render.js): dentro la
+   semilarghezza locale. Cosi' diagnostica e carta non possono dissentire —
+   un controllo che misura l'acqua diversamente da come la si disegna
+   segnala violazioni che sulla carta non si vedono, e viceversa. */
+// tolleranza per dire "questo punto sta sull'impalcato". Tarata sul ponte
+// come viene DISEGNATO: tessutoBridgesLayer traccia l'impalcato con
+// stroke-width 9, cioe' semilarghezza 4.5. Sette e' un filo piu' largo del
+// disegno, quindi tutto cio' che passa questo controllo e' anche
+// visibilmente sul ponte. Se cambia lo stroke-width del ponte, cambia qui.
+const DECK_CLEAR=7;
+const ROAD_STEP=4;      // passo di campionamento lungo un segmento di strada
+function sampleSeg(a,b,step){
+  const L=dist(a,b), n=Math.max(1,Math.ceil(L/step)), out=[];
+  for(let i=0;i<=n;i++){const t=i/n;out.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t])}
+  return out;
+}
+// quante volte un segmento ENTRA nella fascia del fiume. Serve alla
+// ferrovia: render.js disegna un solo ponte per segmento (segCrossesRiver
+// restituisce un unico punto medio), quindi un segmento che attraversa due
+// volte ha per forza un guado non scavalcato — e il ponte che disegna
+// finisce a meta' strada fra i due, sulla terra.
+function riverEntries(a,b,river){
+  if(!river)return 0;
+  let entries=0,was=false;
+  for(const p of sampleSeg(a,b,ROAD_STEP)){
+    const info=riverAt(river,p), now=Math.abs(info.side)<info.hw;
+    if(now&&!was)entries++;
+    was=now;
+  }
+  return entries;
+}
+// indice a griglia sui poligoni: il controllo strada-dentro-edificio e'
+// altrimenti quadratico (centinaia di strade x centinaia di edifici x i
+// campioni di ognuna) e da solo raddoppiava il tempo dell'audit.
+function polyIndex(items,cellSize){
+  const buckets=new Map(), key=(gx,gy)=>gx+','+gy;
+  items.forEach((item,i)=>{
+    const xs=item.poly.map(p=>p[0]), ys=item.poly.map(p=>p[1]);
+    const gx0=Math.floor(Math.min(...xs)/cellSize), gx1=Math.floor(Math.max(...xs)/cellSize);
+    const gy0=Math.floor(Math.min(...ys)/cellSize), gy1=Math.floor(Math.max(...ys)/cellSize);
+    for(let gx=gx0;gx<=gx1;gx++)for(let gy=gy0;gy<=gy1;gy++){
+      const k=key(gx,gy);
+      if(!buckets.has(k))buckets.set(k,[]);
+      buckets.get(k).push(i);
+    }
+  });
+  return p=>buckets.get(key(Math.floor(p[0]/cellSize),Math.floor(p[1]/cellSize)))||[];
+}
+function computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river,bridges,rail,places){
+  bridges=bridges||[];places=places||[];
   const streets=out.streets.filter(c=>c.phase!=='lot'), n=streets.length;
   const parent=Array.from({length:n},(_,i)=>i);
   const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i]}return i};
@@ -824,9 +934,110 @@ function computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river){
       if(!linked&&!onBoundary(p,cityPoly)&&!nearRiverbank(p,river))deadEnds++;
     }
   });
+  // --- INVARIANTE: una strada attraversa l'acqua solo su un ponte ---
+  // L'impalcato (deckA-deckB) e' l'unico posto dove una strada puo' stare
+  // sull'acqua; le rampe (approach-deck) sono gia' su terra e non entrano
+  // nella fascia. Le lungofiume (quays) corrono lungo la riva, non
+  // attraversano, e stanno in out.quays: fuori da questo conto per
+  // costruzione.
+  //
+  // "Guadare" non e' "toccare l'acqua": il confine della fascia e' una linea
+  // continua e il tessuto ci si appoggia contro, quindi una strada di riva
+  // sconfina di frazioni di unita' in continuazione. Misurato su Stress 106:
+  // sei strade segnalate avevano 1 campione bagnato su 15-20 e profondita'
+  // massima 0.0-0.6 su un fiume semilargo 13 — invisibili sulla carta.
+  // Contarle come guadi seppelliva i guadi veri nel rumore.
+  //
+  // Un guado vero e' una delle due cose:
+  //   - la strada ESCE dall'altra parte (campioni bagnati su entrambe le
+  //     sponde: il segno di `side` cambia) — l'attraversamento vero e proprio;
+  //   - la strada entra in profondita' e si ferma li' (oltre un terzo della
+  //     semilarghezza locale) — una via che finisce dentro l'acqua.
+  const DEPTH_FRACTION=.34;
+  const onDeck=p=>bridges.some(b=>segPointDist(p,b.deckA,b.deckB)<DECK_CLEAR);
+  let roadWaterViolations=0; const roadWaterDetails=[];
+  if(river)for(const c of out.streets){
+    let maxDepth=0, deepest=null; const banks=new Set();
+    for(const p of sampleSeg(c.pts[0],c.pts[1],ROAD_STEP)){
+      const info=riverAt(river,p);
+      if(Math.abs(info.side)>=info.hw||onDeck(p))continue;
+      banks.add(Math.sign(info.side)||1);
+      const depth=(info.hw-Math.abs(info.side))/info.hw;
+      if(depth>maxDepth){maxDepth=depth;deepest=p}
+    }
+    const crosses=banks.size>1;
+    if(!crosses&&maxDepth<=DEPTH_FRACTION)continue;
+    roadWaterViolations++;
+    if(roadWaterDetails.length<12){
+      const bd=bridges.reduce((v,b)=>Math.min(v,segPointDist(deepest,b.deckA,b.deckB)),Infinity);
+      roadWaterDetails.push({rank:c.rank||c.phase||'local',x:Math.round(deepest[0]),y:Math.round(deepest[1]),
+        crosses,depth:+maxDepth.toFixed(2),bridgeDistance:Number.isFinite(bd)?Math.round(bd):null});
+    }
+  }
+
+  // --- NON-INVARIANTE: "ogni luogo e' servito da una strada" ---
+  // v1 lo controllava (placeAccessFailures) e in v2 NON e' riportabile in
+  // forma utile. Misurato e verificato sui 24 scenari dell'audit:
+  //
+  //   - dalla geometria del luogo (poligono del parco, edificio agganciato)
+  //     la distanza dalla strada piu' vicina e' 0 su TUTTI gli scenari: i
+  //     lotti nascono tagliati dalle strade, quindi ogni vertice di lotto e'
+  //     un incrocio per costruzione. Un controllo che non puo' fallire.
+  //   - dal centro della pedina va da 3 a 49, ma quella e' la deriva del
+  //     punto astratto (lo scarto casuale in main.js piu' lo spostamento
+  //     dell'ancora), non la raggiungibilita' del luogo: il luogo vero sulla
+  //     carta e' l'edificio agganciato, che sta sulla strada comunque.
+  //
+  // In v2 la preoccupazione di v1 e' gia' coperta, e meglio, da
+  // anchorsUnresolved e landmarksBound: li' si vede se un luogo chiesto
+  // dall'utente e' finito sulla carta, che e' la domanda vera. Meglio non
+  // avere il controllo che averlo sempre verde.
+
+  // --- INVARIANTE: una piazza ha almeno due accessi e nessun edificio dentro ---
+  // Una piazza con una strada sola e' un cortile, non una piazza; una piazza
+  // con un isolato costruito dentro e' un errore di ritaglio.
+  const plazas=out.reserved.filter(r=>r.type==='piazza');
+  let plazaAccessFailures=0, plazaBlockViolations=0;
+  for(const pz of plazas){
+    const c=centroid(pz.poly), reach=Math.sqrt(polyArea(pz.poly)/Math.PI)+18;
+    let accesses=0;
+    for(const s of out.streets)if(segPointDist(c,s.pts[0],s.pts[1])<reach)accesses++;
+    if(accesses<2)plazaAccessFailures++;
+    if(out.buildings.some(b=>inPoly(b.c,pz.poly)))plazaBlockViolations++;
+  }
+
+  // --- INVARIANTE: nessuna strada passa dentro un edificio ---
+  // Gli edifici nascono TAGLIATI dalle strade (subdivide), quindi ogni
+  // strada corre per forza SUL bordo di due lotti: il confronto va fatto
+  // contro il NUCLEO del lotto, non contro il lotto intero, altrimenti si
+  // conta come violazione ogni normale taglio della ricorsione (misurato:
+  // ~150 falsi positivi per carta). Quello che resta e' il caso vero — una
+  // strada aggiunta DOPO la suddivisione, cioe' una rampa di ponte o un
+  // raccordo di reconnectOrphans, tirata sopra lotti gia' costruiti.
+  const cores=out.buildings.map(b=>({poly:scalePoly(b.poly,b.c,.72)}));
+  const coreAt=polyIndex(cores,CELL);
+  let buildingRoadViolations=0;
+  for(const c of out.streets){
+    let hit=false;
+    for(const p of sampleSeg(c.pts[0],c.pts[1],ROAD_STEP)){
+      for(const i of coreAt(p))if(inPoly(p,cores[i].poly)){hit=true;break}
+      if(hit)break;
+    }
+    if(hit)buildingRoadViolations++;
+  }
+
+  // --- INVARIANTE: la ferrovia non guada il fiume ---
+  // render.js disegna un ponte per ogni segmento che attraversa, ma UNO
+  // solo: un segmento che entra due volte nell'acqua ha un guado scoperto.
+  let railUnbridged=0;
+  if(rail&&river)for(const[a,b]of rail.segments)if(riverEntries(a,b,river)>1)railUnbridged++;
+
   return{
     streets:n, components:compsSet.size, deadEnds,
     buildings:out.buildings.length, reserved:out.reserved.length,
+    roadWaterViolations, roadWaterDetails,
+    plazas:plazas.length, plazaAccessFailures, plazaBlockViolations,
+    buildingRoadViolations, railUnbridged,
     anchorsMoved:anchors.filter(a=>a.moved>.5).length,
     anchorsFallback:anchors.filter(a=>a.fallback).length,
     anchorsUnresolved:anchors.filter(a=>!a.done).length,
@@ -1082,7 +1293,7 @@ function buildTessuto(cityPoly, river, places, railStations, hills, sea){
     if(claimedNeighbor.size)out.buildings=out.buildings.filter((b,i)=>!claimedNeighbor.has(i));
   }
 
-  const diag=computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river);
+  const diag=computeDiagnostics(out,anchors,landmarkPawns,cityPoly,river,bridges,rail,places);
   diag.rail=!!rail;
   return {out,bridges,rail,anchors,landmarkPawns,diag};
 }
