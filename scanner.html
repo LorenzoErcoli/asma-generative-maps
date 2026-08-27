@@ -128,7 +128,8 @@
     <div class="calibration-actions">
       <button id="calibrateBoard">Calibra base vuota</button>
       <button id="calibrateColors">Calibra 8 colori</button>
-      <button id="calibrateRed">Calibra rosso</button>
+      <select id="calibrateColorPick"></select>
+      <button id="calibrateOneColor">Calibra solo questo colore</button>
       <button id="matrixTest">Rileva e valuta 8 x 5</button>
       <button id="resetCalibration">Reset calibrazione</button>
     </div>
@@ -270,7 +271,10 @@ document.addEventListener('asma-cv-error',()=>setStatus(`OpenCV.js non disponibi
 if(window.asmaCvReady)setStatus(`OpenCV.js pronto. ${savedCalibrationStatus()}`);
 function emptyVision(){return Array.from({length:N},()=>Array.from({length:N},()=>({dark:false,pawn:false,possiblePawn:false,cat:null,terrain:null,jolly:null,score:0,presenceConfidence:0,colorConfidence:0,shapeConfidence:0,reviewReasons:null,colorDisagreement:null,debug:null,color:null,top:[],code:null,ink:0})))}
 function calibrationColorCount(){return colorCalibration?.colors?.length||0}
-function redCalibrationTargets(){return MARKER_SHAPES.map((shape,index)=>({r:CALIBRATION_ROWS[index],c:0,cat:`rosso-${shape.id}`,colorId:'rosso',label:shape.name,hex:MARKER_COLORS[0].hex}))}
+function singleColorCalibrationTargets(colorId){
+  const columnIndex=MARKER_COLORS.findIndex(c=>c.id===colorId), color=MARKER_COLORS[columnIndex];
+  return MARKER_SHAPES.map((shape,index)=>({r:CALIBRATION_ROWS[index],c:columnIndex,cat:`${colorId}-${shape.id}`,colorId,label:shape.name,hex:color.hex}));
+}
 function matrixCalibrationTargets(){
   return MARKER_SHAPES.flatMap((shape,index)=>MARKER_COLORS.map((color,c)=>({r:CALIBRATION_ROWS[index],c,cat:`${color.id}-${shape.id}`,colorId:color.id,label:shape.name,hex:color.hex})));
 }
@@ -2031,34 +2035,44 @@ function calibrateColors(){
   scan(true);
   return true;
 }
-function calibrateRed(){
+// aggiorna UN SOLO colore nella calibrazione, lasciando gli altri sette
+// esattamente come stavano — utile per correggere un colore alla volta
+// (es. dopo aver spostato le pedine, o cambiata l'illuminazione) senza
+// dover rifare tutta la matrice a 8 colori ogni volta. Se non c'era ancora
+// una calibrazione completa, gli altri colori restano ai valori di
+// riferimento di base (COLOR_TEST_COLUMNS), non calibrati ma presenti.
+function calibrateOneColor(colorId){
   if(corners.length!==4){setStatus('Prima calibra gli angoli della scacchiera.');return false}
   if(!window.asmaCvReady||!window.cv){setStatus('OpenCV.js non è ancora pronto.');return false}
+  const spec=COLOR_TEST_COLUMNS.find(c=>c.id===colorId);
+  if(!spec){setStatus(`Colore sconosciuto: ${colorId}.`);return false}
   let capture;
-  try{capture=captureSupervisedCalibration(redCalibrationTargets())}
-  catch(error){setStatus(`Calibrazione rosso fallita: ${error?.message||error}`);return false}
-  renderCalibrationGuide(capture.targets,'Calibrazione rosso',`Orientamento rilevato ${calibrationOrientationName(capture.orientation.rotation)}. Queste pedine vengono registrate come rosse, senza riclassificarle.`);
-  const red=MARKER_COLORS.find(c=>c.id==='rosso');
-  const spec={kind:'place',cat:'rosso-quadrato',id:'rosso',hex:red.hex};
+  try{capture=captureSupervisedCalibration(singleColorCalibrationTargets(colorId))}
+  catch(error){setStatus(`Calibrazione ${colorId} fallita: ${error?.message||error}`);return false}
+  renderCalibrationGuide(capture.targets,`Calibrazione ${colorId}`,`Orientamento rilevato ${calibrationOrientationName(capture.orientation.rotation)}. Solo questo colore viene aggiornato, gli altri restano come sono.`);
   const pts=capture.targets.filter(target=>target.sample).map(target=>target.sample);
   if(pts.length<3){
-    setStatus(`Calibrazione rosso debole: ${pts.length}/${MARKER_SHAPES.length}. Vedo poche pedine nella disposizione prevista.`);
+    setStatus(`Calibrazione ${colorId} debole: ${pts.length}/${MARKER_SHAPES.length}. Vedo poche pedine nella disposizione prevista.`);
     return false;
   }
   const avg=k=>pts.reduce((a,p)=>a+p[k],0)/pts.length;
   const ref={r:avg('r'),g:avg('g'),b:avg('b'),l:avg('l')};
   const spread=pts.reduce((a,p)=>a+colorDistance(p,ref),0)/pts.length;
-  const learned=[{
+  const learned={
     ...spec,
     ref,
     spread:+spread.toFixed(1),
     samples:pts.length,
     sampleRefs:pts.map(p=>({r:+p.r.toFixed(1),g:+p.g.toFixed(1),b:+p.b.toFixed(1),l:+p.l.toFixed(1)}))
-  }];
-  colorCalibration={mode:'supervised-red-position-v2',createdAt:new Date().toISOString(),orientation:capture.orientation.rotation,columns:[spec],colors:learned};
+  };
+  const base=colorCalibration?.colors?.length===MARKER_COLORS.length
+    ?colorCalibration.colors
+    :COLOR_TEST_COLUMNS.map(c=>({...c,ref:hexRgb(c.hex)}));
+  const colors=base.map(c=>c.id===colorId?learned:c);
+  colorCalibration={mode:'supervised-position-v3',createdAt:new Date().toISOString(),orientation:capture.orientation.rotation,columns:COLOR_TEST_COLUMNS,colors};
   localStorage.setItem(COLOR_CAL_KEY,JSON.stringify(colorCalibration));
   assumeFullGrid=false;
-  setStatus(`Rosso calibrato come rosso: ${pts.length}/${MARKER_SHAPES.length} campioni, orientamento ${calibrationOrientationName(capture.orientation.rotation)}.`);
+  setStatus(`${colorId} calibrato: ${pts.length}/${MARKER_SHAPES.length} campioni, orientamento ${calibrationOrientationName(capture.orientation.rotation)}. Gli altri colori restano invariati.`);
   return true;
 }
 function matrixExpectedTarget(r,c){
@@ -2163,7 +2177,9 @@ autoAiToggle.checked=localStorage.getItem(AUTO_AI_KEY)!=='0';
 autoAiToggle.onchange=()=>localStorage.setItem(AUTO_AI_KEY,autoAiToggle.checked?'1':'0');
 document.getElementById('calibrateBoard').onclick=()=>calibrateBoard();
 document.getElementById('calibrateColors').onclick=()=>calibrateColors();
-document.getElementById('calibrateRed').onclick=()=>calibrateRed();
+const calibrateColorPick=document.getElementById('calibrateColorPick');
+calibrateColorPick.innerHTML=MARKER_COLORS.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+document.getElementById('calibrateOneColor').onclick=()=>calibrateOneColor(calibrateColorPick.value);
 document.getElementById('matrixTest').onclick=()=>runMatrixTest();
 document.getElementById('resetCalibration').onclick=()=>{
   colorCalibration=null;boardCalibration=null;
