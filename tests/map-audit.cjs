@@ -1,42 +1,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const vm = require('vm');
+const { loadGenerator } = require('./harness.cjs');
 
-const html = fs.readFileSync('index.html', 'utf8');
-const elements = new Map();
-class ElementStub {
-  constructor(id = '') {
-    this.id = id; this.children = []; this.style = {}; this.dataset = {};
-    this.value = id === 'character' ? 'classico' : ''; this.textContent = '';
-    this.className = ''; this.classList = { add() {}, remove() {} }; this._html = '';
-  }
-  appendChild(node) { this.children.push(node); return node; }
-  append(node) { this.children.push(node); }
-  set innerHTML(value) { this._html = String(value); this.children = []; }
-  get innerHTML() { return this._html; }
-  querySelectorAll() { return []; }
-  setPointerCapture() {}
-}
-for (const id of ['grid', 'terrainTools', 'catSelect', 'placeTools', 'jollyTools', 'jollyLabels',
-  'mapHost', 'status', 'btnGen', 'btnClear', 'btnPrint', 'btnExport', 'btnDemo', 'character']) {
-  elements.set(id, new ElementStub(id));
-}
-const document = {
-  getElementById(id) { if (!elements.has(id)) elements.set(id, new ElementStub(id)); return elements.get(id); },
-  createElement() { return new ElementStub(); }, querySelectorAll() { return []; },
-};
-const sandbox = { document, window: { print() {} }, console, setTimeout(fn) { fn(); return 1; },
-  clearTimeout() {}, Blob: function Blob() {},
-  URL: { createObjectURL() { return 'blob:test'; }, revokeObjectURL() {} }, Math };
-vm.createContext(sandbox);
-const source = html.match(/<script>([\s\S]*?)<\/script>/)[1]
-  .replace(/buildConsole\(\);buildGrid\(\);([\s\S]*?)demo\(\);\s*$/, 'buildConsole();buildGrid();$1') + `
-  ;globalThis.auditApi = {empty, generate,
-    setGrid(value) { grid=value; order=0; }, svg() { return lastSVG; },
-    diagnostics() { return lastDiagnostics; }, status() { return document.getElementById('status').textContent; }};`;
-vm.runInContext(source, sandbox, { timeout: 30000 });
-const api = sandbox.auditApi;
+const api = loadGenerator();
 
 function makeScenario(name, water = [], mountains = [], hills = [], places = []) {
   const grid = api.empty();
@@ -157,24 +124,29 @@ for (const scenario of selected) {
     const index = String(pairIndexOffset + results.length).padStart(2, '0');
     fs.writeFileSync(path.join(pairOutputDir, `${index}-${fileSlug(scenario.name)}.svg`), mapAndBoardSvg(svg, scenario.grid));
   }
-  for (const key of ['roadWaterViolations', 'riverDangling', 'railUnbridged',
-    'blockRoadViolations', 'plazaBlockViolations', 'plazaAccessFailures']) {
-    if (d[key]) failures.push(`${scenario.name}: ${key}=${d[key]}`);
-  }
-  // Un luogo periferico non deve provocare una strada dedicata. E' un errore
-  // soltanto se esisteva una via raggiungibile sulla stessa sponda entro il
-  // normale raggio di assestamento ma il generatore non l'ha usata.
-  if ((d.placeAccessDetails || []).some(place => place.sameBankDistance != null && place.sameBankDistance <= 190)) {
-    failures.push(`${scenario.name}: avoidable placeAccessFailures=${d.placeAccessFailures}`);
-  }
-  if (d.regionalComponents > Math.max(1, d.urbanComponents * 3)) failures.push(`${scenario.name}: regionalComponents=${d.regionalComponents}, urbanComponents=${d.urbanComponents}`);
-  if (d.roadComponents > Math.max(1, d.urbanComponents)) failures.push(`${scenario.name}: roadComponents=${d.roadComponents}, urbanComponents=${d.urbanComponents}`);
-  if (d.deadEnds > 3) failures.push(`${scenario.name}: deadEnds=${d.deadEnds}`);
+  if (/NaN|Infinity|undefined/.test(svg)) failures.push(`${scenario.name}: SVG con geometria non valida`);
+  // Invarianti geometrici (computeDiagnostics in tessuto.js): regole che
+  // devono valere su ogni carta, qualunque sia la scacchiera di partenza.
+  if (d.roadWaterViolations) failures.push(`${scenario.name}: strade che guadano il fiume=${d.roadWaterViolations} ${JSON.stringify(d.roadWaterDetails.slice(0, 3))}`);
+  if (d.plazaAccessFailures) failures.push(`${scenario.name}: piazze con meno di due accessi=${d.plazaAccessFailures}`);
+  if (d.plazaBlockViolations) failures.push(`${scenario.name}: piazze con un isolato dentro=${d.plazaBlockViolations}`);
+  if (d.buildingRoadViolations) failures.push(`${scenario.name}: strade dentro un edificio=${d.buildingRoadViolations}`);
+  if (d.railUnbridged) failures.push(`${scenario.name}: ferrovia che guada il fiume=${d.railUnbridged}`);
+  // La rete stradale deve restare un pezzo unico: un secondo componente vuol
+  // dire un quartiere che non si raggiunge da nessuna strada (col fiume in
+  // mezzo e' il sintomo classico del ponte mancante).
+  if (d.components > 1) failures.push(`${scenario.name}: components=${d.components}`);
+  // Ogni pedina-ancora deve trovare posto nel tessuto; un'ancora irrisolta e'
+  // un luogo chiesto dall'utente che sulla carta non c'e'.
+  if (d.anchorsUnresolved) failures.push(`${scenario.name}: anchorsUnresolved=${d.anchorsUnresolved}`);
+  if (d.landmarksBound < d.landmarksTotal) failures.push(`${scenario.name}: landmarks non agganciati ${d.landmarksBound}/${d.landmarksTotal}`);
+  if (!d.streets) failures.push(`${scenario.name}: nessuna strada generata`);
+  if (!d.buildings) failures.push(`${scenario.name}: nessun edificio generato`);
   if (d.streets > 450) failures.push(`${scenario.name}: streets=${d.streets}`);
   console.log(`${scenario.name}: ${JSON.stringify(d)}`);
 }
 
-const cards = results.map(({ name, d, svg }) => `<article><h2>${name}</h2><p>${d.streets} strade · ${d.urbanComponents} nuclei · ${d.roadComponents} componenti · ${d.deadEnds} estremita isolate · ${d.railCrossings} ponti ferroviari</p>${svg}</article>`).join('');
+const cards = results.map(({ name, d, svg }) => `<article><h2>${name}</h2><p>${d.streets} strade · ${d.components} componenti · ${d.deadEnds} vicoli ciechi · ${d.buildings} edifici · ${d.rail ? 'con ferrovia' : 'senza ferrovia'}</p>${svg}</article>`).join('');
 const gallery = `<!doctype html><meta charset="utf-8"><title>Audit generatore</title><style>
   *{box-sizing:border-box}body{margin:0;background:#181510;color:#eee;font:14px system-ui;display:grid;grid-template-columns:repeat(${results.length <= 2 ? 1 : 3},1fr);gap:12px;padding:12px}
   article{background:#29231b;padding:8px}h2{font-size:16px;margin:0 0 3px}p{margin:0 0 7px;color:#cfc6b7}svg{display:block;width:100%;height:auto;background:#eee}

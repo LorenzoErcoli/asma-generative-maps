@@ -55,7 +55,13 @@ function generate(){
   const seaComp=waterComps.filter(c=>c.cls==='mare').sort((a,b)=>b.cells.length-a.cells.length)[0];
   let sea=seaComp?seaBoundary(seaComp.cells):null;
   const hasWater=terr.water.length>0;
-  const places=pawns.filter(p=>p.jolly||!CAT[p.cat].needsWater||(hasWater&&nearWaterCell(p,terr.water)));
+  // Una pedina con una categoria che non sta in CAT va scartata come non
+  // valida, non deve far esplodere generate(): la tassonomia cambia (es.
+  // 'ponte' e 'porta', tolti quando i ponti sono passati all'algoritmo) e
+  // una scacchiera salvata o acquisita con una tassonomia vecchia deve
+  // finire nel conteggio delle "pedine ignorate" come qualsiasi altra
+  // pedina non piazzabile.
+  const places=pawns.filter(p=>p.jolly||(CAT[p.cat]&&(!CAT[p.cat].needsWater||(hasWater&&nearWaterCell(p,terr.water)))));
   const ignored=pawns.length-places.length;
   for(const p of places){
     p.gx=p.c+.5+rr(-.16,.16); p.gy=p.r+.5+rr(-.16,.16);
