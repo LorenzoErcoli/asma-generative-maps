@@ -6,7 +6,7 @@
 html,body{margin:0;height:100%}
 body{
   background:var(--bg); color:var(--ink);
-  font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  font-family:"Archivo",system-ui,sans-serif;
   display:flex; height:100vh; overflow:hidden;
 }
 #console{
@@ -17,7 +17,7 @@ body{
 #console h1{font-size:15px;letter-spacing:.5px;margin:0 0 2px}
 #console .sub{font-size:11px;color:var(--muted);margin:0 0 12px;font-style:italic}
 .group{border:1px solid var(--line);border-radius:8px;padding:9px;margin-bottom:10px;background:rgba(0,0,0,.12)}
-.group h2{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:0 0 7px;font-family:system-ui,sans-serif}
+.group h2{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:0 0 7px}
 .tools{display:flex;flex-wrap:wrap;gap:5px}
 .tool{display:flex;align-items:center;gap:5px;cursor:pointer;border:1px solid var(--line);
   border-radius:6px;padding:4px 7px;font-size:12px;background:rgba(255,255,255,.02);user-select:none}
@@ -86,10 +86,13 @@ dialog#legendModal::backdrop{background:rgba(0,0,0,.6)}
   font-size:13px;color:#fff;box-shadow:inset 0 -3px 6px rgba(0,0,0,.35),0 2px 4px rgba(0,0,0,.4)}
 .cell .terr{position:absolute;inset:0;border-radius:2px}
 .cell .ord{position:absolute;top:-3px;right:-2px;font-size:9px;color:#231a10;background:var(--accent);
-  border-radius:8px;padding:0 3px;font-family:system-ui,sans-serif;font-weight:700}
+  border-radius:8px;padding:0 3px;font-weight:700}
 #middle .cap{font-size:11px;color:var(--muted);margin-top:10px;text-align:center;font-style:italic;max-width:290px;line-height:1.5}
 #map{flex:1;height:100%;overflow:auto;background:#0f0c09;display:flex;align-items:center;justify-content:center;padding:12px}
 #map svg{max-width:100%;max-height:100%;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+/* fronte della carta (assets/fronte.pdf): esiste solo per la stampa, mai a
+   schermo — vedi @media print sotto. */
+#front{display:none}
 #scannerFrame{display:block;width:100%;height:100%;border:0;background:#16120e}
 body.scanner-calibration-open{overflow:hidden}
 body.scanner-calibration-open::before{content:"";position:fixed;inset:0;z-index:50;background:rgba(8,6,4,.82)}
@@ -102,10 +105,34 @@ body.scanner-calibration-open #cameraDock{position:fixed;inset:14px;z-index:51;w
 .marker-shape.croce::after{content:"";position:absolute;width:5px;height:13px;background:#fff;left:4px;top:-4px}
 .marker-shape.pentagono{clip-path:polygon(50% 0,100% 38%,81% 100%,19% 100%,0 38%)}
 @media print{
-  @page{size:landscape;margin:8mm}
+  @page{size:A3 landscape;margin:8mm}
   body{display:block;background:#fff}
   #console,#middle{display:none}
-  #map{height:auto;overflow:visible;background:#fff;padding:0}
-  #map svg{box-shadow:none;max-height:none;width:100%}
+  #map{overflow:visible;background:#fff;padding:0}
+  /* max-width/max-height in mm, non %: un % qui dipenderebbe dall'altezza
+     di #mapHost che e' auto (contenuto), quindi non si risolverebbe in
+     stampa. In mm invece sono assoluti — 404x281 = A3 orizzontale (420x297)
+     meno i due margini da 8mm di @page sopra. Il rapporto dell'SVG e' gia'
+     quello di un A3 (vedi SIDE in world.js), ma un pixel di scarto tra i
+     due margini lo assorbe comunque questo doppio vincolo, mai il foglio. */
+  #map svg{box-shadow:none;max-width:404mm;max-height:281mm;width:auto;height:auto}
+
+  /* fronte: pagina 1, sempre prima della mappa nel flusso del documento —
+     page-break-after la separa dalla mappa (pagina 2) cosi' "Stampa" esce
+     su due fogli, fronte poi retro (o fronte/retro dello stesso foglio se
+     la stampante e' impostata fronte-retro, non e' cosa che il CSS possa
+     decidere). */
+  #front{display:flex;align-items:center;justify-content:center;
+    position:relative;width:100%;height:281mm;page-break-after:always;overflow:visible}
+  #frontPdf{max-width:404mm;max-height:281mm;width:auto;height:auto;border:0}
+  /* posizione del numero sul nastro viola del fronte: da tarare a occhio
+     controllando l'anteprima di stampa, vedi --n-top/--n-left/--n-rot. */
+  #frontNum{
+    --n-top:10%; --n-left:78%; --n-rot:-6deg;
+    position:absolute;top:var(--n-top);left:var(--n-left);
+    transform:translate(-50%,-50%) rotate(var(--n-rot));
+    font-family:"Archivo",sans-serif;font-weight:900;font-style:normal;
+    font-size:22pt;color:#1c1c1c;letter-spacing:1px;
+  }
 }
 @media (max-width:900px){body.scanner-calibration-open #cameraDock{inset:0;border:0;border-radius:0}}

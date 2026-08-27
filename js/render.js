@@ -55,7 +55,7 @@ function tessutoBuildingsLayer(out,P){
         s+=`<path d="${dPoly(rect,true)}" fill="${P.built}" stroke="${P.builtLn}" stroke-width=".5"/>`;
       }else{
         const yard=scalePoly(b.poly,b.c,.88);
-        s+=`<path d="${dPoly(yard,true)}" fill="${P.land}" stroke="${P.builtLn}" stroke-width=".5" stroke-dasharray="2 2"/>`;
+        s+=`<path d="${dPoly(yard,true)}" fill="${P.void}" stroke="${P.builtLn}" stroke-width=".5" stroke-dasharray="2 2"/>`;
       }
     }
   }
@@ -419,7 +419,7 @@ function fillersLayer(F,P){
   for(const f of F){
     if(f.kind==='H'){
       s+=`<rect x="${F1(f.x-6)}" y="${F1(f.y-6)}" width="12" height="12" rx="2" fill="${P.red}" opacity=".85"/>`;
-      s+=`<text x="${F1(f.x)}" y="${F1(f.y+4)}" font-size="9" text-anchor="middle" fill="#fff" font-family="system-ui,sans-serif" font-weight="700">H</text>`;
+      s+=`<text x="${F1(f.x)}" y="${F1(f.y+4)}" font-size="9" text-anchor="middle" fill="#fff" font-weight="700">H</text>`;
     }else if(f.kind==='stadio'){
       s+=`<ellipse cx="${F1(f.x)}" cy="${F1(f.y)}" rx="17" ry="11" fill="${P.green}" stroke="${P.greenDk}" stroke-width="1.2"/>`;
       s+=`<ellipse cx="${F1(f.x)}" cy="${F1(f.y)}" rx="10" ry="5.5" fill="none" stroke="${P.greenDk}" stroke-width=".8"/>`;
@@ -455,17 +455,18 @@ function landmarksLayer(places,P){
   for(const p of places){
     if(p.cat==='piazza'&&p.plazaMarker){
       s+=`<circle cx="${F1(p.plazaMarker[0])}" cy="${F1(p.plazaMarker[1])}" r="8" fill="${P.paper}" stroke="${P.redDk}" stroke-width="1.3"/>`;
-      s+=`<text x="${F1(p.plazaMarker[0])}" y="${F1(p.plazaMarker[1]+3)}" font-size="10" text-anchor="middle" fill="${P.redDk}" font-family="system-ui,sans-serif" font-weight="700">${p.ord}</text>`;
+      s+=`<text x="${F1(p.plazaMarker[0])}" y="${F1(p.plazaMarker[1]+3)}" font-size="10" text-anchor="middle" fill="${P.redDk}" font-weight="700">${p.ord}</text>`;
       continue;
     }
-    const w=rr(15,22),h=rr(13,19),a=rr(-14,14);
-    s+=`<g transform="translate(${F1(p.x)},${F1(p.y)}) rotate(${F1(a)})">
-      <rect x="${F1(-w/2)}" y="${F1(-h/2)}" width="${F1(w)}" height="${F1(h)}" fill="${P.red}" stroke="${P.redDk}" stroke-width="1.1"/>
+    const[ax,ay]=p.iconAnchor||[p.x,p.y];
+    const w=17,h=15;
+    s+=`<g transform="translate(${F1(ax)},${F1(ay)})">
+      <rect x="${F1(-w/2)}" y="${F1(-h/2)}" width="${F1(w)}" height="${F1(h)}" rx="1.5" fill="${P.red}" stroke="${P.redDk}" stroke-width="1.1"/>
       <rect x="${F1(-w/2+2.5)}" y="${F1(-h/2+2.5)}" width="${F1(w-5)}" height="${F1(h-5)}" fill="none" stroke="${P.paper}" stroke-width=".7" opacity=".5"/>
      </g>`;
-    s+=`<g transform="translate(${F1(p.x)},${F1(p.y)}) scale(.62)" stroke="${P.paper}" fill="none" stroke-width="2">${p.jolly?ICON.star:ICON[CAT[p.cat].icon]}</g>`;
-    s+=`<circle cx="${F1(p.x+13)}" cy="${F1(p.y-12)}" r="8" fill="${P.paper}" stroke="${P.redDk}" stroke-width="1.3"/>`;
-    s+=`<text x="${F1(p.x+13)}" y="${F1(p.y-9)}" font-size="10" text-anchor="middle" fill="${P.redDk}" font-family="system-ui,sans-serif" font-weight="700">${p.ord}</text>`;
+    s+=`<g transform="translate(${F1(ax)},${F1(ay)}) scale(.58)" stroke="${P.paper}" fill="none" stroke-width="2">${p.jolly?ICON.star:ICON[CAT[p.cat].icon]}</g>`;
+    s+=`<circle cx="${F1(ax+12)}" cy="${F1(ay-11)}" r="8" fill="${P.paper}" stroke="${P.redDk}" stroke-width="1.3"/>`;
+    s+=`<text x="${F1(ax+12)}" y="${F1(ay-8)}" font-size="10" text-anchor="middle" fill="${P.redDk}" font-weight="700">${p.ord}</text>`;
   }
   return s;
 }
@@ -500,8 +501,12 @@ function suburbNames(S,P){
 function landmarkNames(places,P){
   let s='';
   for(const p of places){
-    const y=p.plazaMarker?p.plazaMarker[1]+22:p.y+24;
-    s+=`<text x="${F1(p.x)}" y="${F1(y)}" font-size="10" text-anchor="middle" fill="${P.redDk}"
+    // piazza/giardino/cimitero sono ancore del tessuto: il nome e' gia'
+    // scritto sul vero lotto ritagliato da tessutoLabelsLayer (out.reserved).
+    // Ripeterlo qui, vicino alla pedina originale, duplicava ogni nome.
+    if(ANCHOR_CATS.has(p.cat))continue;
+    const[ax,ay]=p.iconAnchor||[p.x,p.y];
+    s+=`<text x="${F1(ax)}" y="${F1(ay+23)}" font-size="10" text-anchor="middle" fill="${P.redDk}"
       font-weight="600" stroke="${P.paper}" stroke-width="2.6" paint-order="stroke">${esc(p.name)}</text>`;
   }
   return s;
@@ -541,21 +546,21 @@ function compass(x,y,P){
   return `<g transform="translate(${x},${y})" stroke="${P.ink}" fill="${P.ink}">
     <circle r="20" fill="${P.paper}" fill-opacity=".7" stroke-width="1"/><circle r="14" fill="none" stroke-width=".6"/>
     <path d="M0 -18 L4 0 L0 5 L-4 0 Z"/><path d="M0 18 L4 0 L-4 0 Z" fill="none" stroke-width=".8"/>
-    <text x="0" y="-22" font-size="9" text-anchor="middle" font-family="system-ui,sans-serif">N</text></g>`;
+    <text x="0" y="-22" font-size="9" text-anchor="middle">N</text></g>`;
 }
 const clip=(s,n)=>{s=String(s);return s.length>n?s.slice(0,n-1)+'…':s};
-function sidebar(places,waterComps,terr,ch,P,districts){
+function sidebar(places,waterComps,terr,ch,P,districts,mapNum){
   const X=MAPW+26;let y=64;let s='';
   s+=`<rect x="${MAPW}" y="0" width="${SIDE}" height="${SVGH}" fill="${P.paper}"/>`;
   s+=`<line x1="${MAPW}" y1="0" x2="${MAPW}" y2="${SVGH}" stroke="${P.frame}" stroke-width="1"/>`;
-  s+=`<text x="${X}" y="${y}" font-size="30" fill="${P.ink}" font-style="italic">${esc(cityName())}</text>`;y+=20;
-  s+=`<text x="${X}" y="${y}" font-size="10" fill="${P.ink}" opacity=".65" letter-spacing="3" font-family="system-ui,sans-serif">CARTA DI VIAGGIO · ${ch.toUpperCase()}</text>`;y+=18;
+  s+=`<text x="${X}" y="${y}" font-size="30" fill="${P.ink}" font-weight="900">MAPPA N. ${mapNum}</text>`;y+=20;
+  s+=`<text x="${X}" y="${y}" font-size="10" fill="${P.ink}" opacity=".65" letter-spacing="3">CARTA DI VIAGGIO · ${ch.toUpperCase()}</text>`;y+=18;
   s+=`<line x1="${X}" y1="${y}" x2="${SVGW-26}" y2="${y}" stroke="${P.frame}" stroke-width=".8"/>`;y+=24;
-  s+=`<text x="${X}" y="${y}" font-size="15" fill="${P.ink}" font-style="italic">Giornata tipo</text>`;y+=20;
+  s+=`<text x="${X}" y="${y}" font-size="15" fill="${P.ink}" font-style="italic">Luoghi importanti</text>`;y+=20;
   for(const p of places){
     if(y>SVGH-150)break;
     s+=`<circle cx="${X+7}" cy="${y-3}" r="8" fill="none" stroke="${P.redDk}" stroke-width="1.2"/>`;
-    s+=`<text x="${X+7}" y="${y}" font-size="9.5" text-anchor="middle" fill="${P.redDk}" font-family="system-ui,sans-serif" font-weight="700">${p.ord}</text>`;
+    s+=`<text x="${X+7}" y="${y}" font-size="9.5" text-anchor="middle" fill="${P.redDk}" font-weight="700">${p.ord}</text>`;
     s+=`<text x="${X+22}" y="${y-1}" font-size="12" fill="${P.ink}">${esc(clip(p.name,30))}</text>`;
     const m=p.jolly?p.label:microFor(p.cat,ch);
     s+=`<text x="${X+22}" y="${y+11}" font-size="9" fill="${P.ink}" opacity=".65" font-style="italic">${esc(clip(m,44))}</text>`;

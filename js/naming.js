@@ -18,7 +18,6 @@ function propr(){const s=RND();
   if(s<.8)return word();
   return word()+' '+word();
 }
-function cityName(){return cap(pick(NB.pre))+' '+word()}
 function streetName(major){
   const t=major?pick(NB.major):pick(NB.street);
   const s=RND();

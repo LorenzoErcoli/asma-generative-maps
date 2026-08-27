@@ -10,7 +10,11 @@
 /* ---------------- scala della carta ---------------- */
 const N=8, CELL=110, PAD=110;
 const MAPW=N*CELL+PAD*2;
-const SIDE=380;
+// SIDE calibrata cosi' che l'intera tavola (mappa + colonna laterale) abbia
+// il rapporto esatto di un A3 orizzontale (420x297mm, cioe' radice di 2):
+// la carta va stampata su un solo foglio senza che nulla ne esca, vedi
+// @media print in style.css.
+const SIDE=Math.round(MAPW*(420/297-1));
 const SVGW=MAPW+SIDE, SVGH=MAPW;
 const STEP=10;
 const GW=Math.ceil(MAPW/STEP), GH=GW;
@@ -65,24 +69,31 @@ const TERRAINS={water:{name:'Acqua',color:'#3b6f86'},mountain:{name:'Montagna',c
 const NJOLLY=5;
 const ANCHOR_CATS=new Set(['piazza','giardino','cimitero']);
 
-/* ---------------- palette ---------------- */
-const PAL={
- classico:{land:'#e9e3d2',built:'#e8c3ad',builtLn:'#c9967a',street:'#fdfaf4',major:'#fff8e8',
-   water:'#a8c8dc',waterLn:'#6f9ab5',green:'#bcd3a0',greenDk:'#8fae76',ink:'#4a3f30',
-   red:'#c0392b',redDk:'#8c2b21',rail:'#3a332a',frame:'#6b5a44',paper:'#f2ecdb',sub:'#8d8574'},
- culturale:{land:'#e7e5da',built:'#dcc9c9',builtLn:'#b79c9c',street:'#fdfbf7',major:'#fff6f2',
-   water:'#a9b9cf',waterLn:'#6d84a4',green:'#b6c8ab',greenDk:'#86a07c',ink:'#3c3948',
-   red:'#8e4a6b',redDk:'#6a3450',rail:'#332f3a',frame:'#5f5a6b',paper:'#efece2',sub:'#87849a'},
- festaiolo:{land:'#f0e6cd',built:'#f0c39a',builtLn:'#d09a6a',street:'#fffaf0',major:'#fff2dc',
-   water:'#b7cbbd',waterLn:'#7d9c88',green:'#c9d497',greenDk:'#9fae66',ink:'#4c3327',
-   red:'#d1452f',redDk:'#9c2f1f',rail:'#3d2f26',frame:'#8a4c34',paper:'#f6ead2',sub:'#a3856a'},
- rilassante:{land:'#e6ead9',built:'#dfd9bd',builtLn:'#b6b08f',street:'#fdfdf6',major:'#fbfbea',
-   water:'#aacfcb',waterLn:'#6f9f99',green:'#bcd7a3',greenDk:'#87a86f',ink:'#3f4a3d',
-   red:'#a0603c',redDk:'#7a462a',rail:'#3a4238',frame:'#6f7d63',paper:'#eef1e2',sub:'#8b9880'},
- avventura:{land:'#e4d7b6',built:'#dfc194',builtLn:'#b8935f',street:'#fbf5e6',major:'#fff2d5',
-   water:'#9dbcb8',waterLn:'#5f8580',green:'#b3c07f',greenDk:'#84934f',ink:'#3c2e1d',
-   red:'#a8542a',redDk:'#7c3b1c',rail:'#332a1d',frame:'#6d5738',paper:'#ecdfc0',sub:'#8f7c58'},
+/* ---------------- palette ----------------
+   un'unica palette allineata al brand (vedi LANDMARK_FILL in tessuto.js per
+   gli edifici-simbolo, in sfumature di viola): il "carattere della sessione"
+   sceglie ancora il tono dei microtesti in sidebar (MICRO, naming.js), ma
+   non piu' i colori — tutte e 5 le voci puntano alla stessa PAL_BRAND. */
+const PAL_BRAND={
+ land:'#ffffff',paper:'#ffffff',
+ // terreno urbano non edificato (lotti troppo piccoli per un palazzo,
+ // cortili irregolari): grigio chiaro invece di bianco, cosi' si legge
+ // come "dentro la citta', semplicemente non costruito" invece di sparire
+ // nel foglio bianco — vedi il fondo citta' in main.js e il cortile
+ // tratteggiato in tessutoBuildingsLayer (render.js).
+ void:'#f3f3f3',
+ built:'#d8cec6',builtLn:'#a89a90',
+ // tenue apposta: le strade fanno da sfondo ai palazzi, non devono competere
+ // — piu' chiare del riempimento degli edifici (built), il corso resta solo
+ // un filo piu' presente della via per leggersi comunque come arteria
+ // principale (aiutato anche dal tratto piu' spesso, vedi streetRank).
+ street:'#e6e6e6',major:'#d8d8d8',
+ water:'#9fc3da',waterLn:'#5f8fab',
+ green:'#a9c98f',greenDk:'#7c9d5c',
+ red:'#f84401',redDk:'#b8300a',
+ ink:'#1c1c1c',frame:'#1c1c1c',rail:'#2a2a2a',sub:'#8a8a8a',
 };
+const PAL={classico:PAL_BRAND,culturale:PAL_BRAND,festaiolo:PAL_BRAND,rilassante:PAL_BRAND,avventura:PAL_BRAND};
 
 /* ---------------- terreno: componenti connesse (8-direzioni) ---------------- */
 const NB8=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
@@ -112,20 +123,57 @@ function comps(cells){
 // taglia mai, quindi appariva disegnato sopra le case. Chi non attraversa
 // resta un lago qui; potra' comunque diventare un vero affluente piu'
 // sotto, in waterField, se abbastanza vicino a un fiume che attraversa.
-function classWater(cells){
-  if(cells.length===1)return 'laghetto';
+// una macchia d'acqua larga incollata a un solo bordo (la costa) — usata
+// sia per classificare 'mare' sia per sapere, dopo, DOVE passa esattamente
+// la linea di costa (seaBoundary sotto): stessa fonte, mai due risposte
+// diverse su cos'e' il mare.
+function edgeHug(cells){
   const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
   const sr=Math.max(...rs)-Math.min(...rs), sc=Math.max(...cs)-Math.min(...cs);
+  const runs=[
+    {side:'top',n:cells.filter(([r])=>r===0).length,along:sc,deep:sr},
+    {side:'bottom',n:cells.filter(([r])=>r===N-1).length,along:sc,deep:sr},
+    {side:'left',n:cells.filter(([,c])=>c===0).length,along:sr,deep:sc},
+    {side:'right',n:cells.filter(([,c])=>c===N-1).length,along:sr,deep:sc},
+  ];
+  let best=null;
+  for(const r of runs)if(r.n>=2&&r.along>=Math.max(1,r.deep*1.25)&&(!best||r.along>best.along))best=r;
+  return best;
+}
+// TOLTO TEMPORANEAMENTE dalla generazione (richiesta esplicita): una fascia
+// d'acqua stretta che attraversa la citta' — quindi con edifici veri su
+// ENTRAMBI i lati — veniva letta come costa (edgeHug) e tagliata dura su un
+// solo lato, ma visivamente e' un fiume in tutto e per tutto (ferrovia in
+// affiancamento, palazzi ai due lati...): il taglio a senso unico del mare
+// non ci sta. Rimettere MARE_ENABLED=true riattiva mare/trimSea cosi' come
+// sono (edgeHug/seaBoundary in tessuto.js restano intatti, solo inutilizzati)
+// — prima pero' va ripensato QUANDO davvero e' costa e non fiume largo.
+const MARE_ENABLED=false;
+function classWater(cells){
+  if(cells.length===1)return 'laghetto';
+  // il mare va controllato PRIMA del fiume: una costa tocca quasi sempre
+  // anche l'angolo opposto in altezza o larghezza — con l'ordine invertito
+  // vinceva sempre 'fiume' e 'mare' non veniva mai raggiunto, letteralmente
+  // codice morto. Un fiume vero e' invece STRETTO dove tocca il bordo
+  // (poche celle, n<2 sotto); edgeHug non lo confonde con una costa.
+  if(MARE_ENABLED&&edgeHug(cells))return 'mare';
+  const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
   const tT=rs.includes(0),tB=rs.includes(N-1),tL=cs.includes(0),tR=cs.includes(N-1);
   if((tT&&tB)||(tL&&tR))return 'fiume';
-  const edgeRuns=[
-    {n:cells.filter(([r])=>r===0).length,along:sc,deep:sr},
-    {n:cells.filter(([r])=>r===N-1).length,along:sc,deep:sr},
-    {n:cells.filter(([,c])=>c===0).length,along:sr,deep:sc},
-    {n:cells.filter(([,c])=>c===N-1).length,along:sr,deep:sc},
-  ];
-  if(edgeRuns.some(e=>e.n>=2&&e.along>=Math.max(1,e.deep*1.25)))return 'mare';
   return cells.length<=3?'laghetto':'lago';
+}
+// dove passa davvero la costa, in coordinate mondo: un semipiano "qui e'
+// terra" pronto per un vero taglio nel tessuto (trimSea in tessuto.js) —
+// esattamente come trimRiver taglia lungo il fiume, cosi' il mare smette
+// di essere solo un velo disegnato sopra citta' gia' costruita.
+function seaBoundary(cells){
+  const hug=edgeHug(cells);
+  if(!hug)return null;
+  const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
+  if(hug.side==='right')return{nVec:[1,0],offset:W(Math.min(...cs))};
+  if(hug.side==='left')return{nVec:[-1,0],offset:-W(Math.max(...cs)+1)};
+  if(hug.side==='bottom')return{nVec:[0,1],offset:W(Math.min(...rs))};
+  return{nVec:[0,-1],offset:-W(Math.max(...rs)+1)};
 }
 
 /* ---------------- centro urbano, MST, campo urbanita' ---------------- */
@@ -245,15 +293,26 @@ function waterField(waterComps,places){
   const riverCps=waterComps.filter(cp=>cp.cls==='fiume'&&cp.cells.length>=2);
   const borderCount=cp=>cp.cells.filter(([r,c])=>r===0||r===N-1||c===0||c===N-1).length;
   riverCps.sort((a,b)=>(b.cells.length+borderCount(b)*3)-(a.cells.length+borderCount(a)*3));
-  // ogni riverCps ora attraversa DAVVERO la citta' (classWater lo garantisce):
-  // e' un tronco vero, si estende sempre fino al bordo. I laghi/laghetti
-  // invece NON attraversano — provano solo ad agganciarsi come affluenti a
-  // un tronco gia' tracciato, esattamente come un fiume corto faceva prima;
-  // se nessun tronco e' abbastanza vicino restano semplicemente un lago
+  // al massimo UN fiume vero: solo il piu' prominente (il primo, dopo
+  // l'ordinamento sopra) diventa il tronco che si estende fino al bordo.
+  // Se la scacchiera ne ha disegnati altri che attraversano anche loro
+  // (troppa acqua, o due bracci distinti), NON diventano un secondo fiume
+  // indipendente — la ricorsione del tessuto ne taglia comunque solo uno
+  // (rivers[0] in main.js), un secondo finiva sempre disegnato sopra le
+  // case. Provano ad agganciarsi come affluenti esattamente come un lago;
+  // se sono troppo lontani restano un lago grande, mai un fiume fantasma.
+  const [primaryRiver,...extraRivers]=riverCps;
+  // ogni lago invece non attraversa mai (classWater lo garantisce) — prova
+  // solo ad agganciarsi come affluente a un tronco gia' tracciato; se
+  // nessun tronco e' abbastanza vicino resta semplicemente un lago
   // (rendering piu' sotto), invece di diventare un secondo fiume fantasma.
   const lakeCps=waterComps.filter(cp=>(cp.cls==='lago'||cp.cls==='laghetto')&&cp.cells.length>=2)
     .sort((a,b)=>b.cells.length-a.cells.length);
-  const candidates=[...riverCps.map(cp=>({cp,trunk:true})),...lakeCps.map(cp=>({cp,trunk:false}))];
+  const candidates=[
+    ...(primaryRiver?[{cp:primaryRiver,trunk:true}]:[]),
+    ...extraRivers.map(cp=>({cp,trunk:false})),
+    ...lakeCps.map(cp=>({cp,trunk:false})),
+  ];
   const rawAxes=[];
   for(const {cp,trunk} of candidates){
       const cells=cp.cells;
@@ -265,7 +324,10 @@ function waterField(waterComps,places){
         for(const end of [0,path.length-1])for(const axis of rawAxes)for(const q of axis){
           const d=dist(path[end],q);if(!join||d<join.d)join={end,q,d};
         }
-        if(!join||join.d>=5*CELL)continue; // troppo lontano da un fiume vero: resta un lago
+        // troppo lontano da un fiume vero: resta (o torna) un lago — anche
+        // il nome deve seguire, altrimenti un "fiume" declassato mostra
+        // ancora l'etichetta "Fiume X" pur disegnato come una macchia blu.
+        if(!join||join.d>=5*CELL){cp.cls='lago';cp.label='Lago di '+cp.proper;continue}
         if(join.end===0)path.reverse();
         path=[extendRiverPoint(path[0],path[1]),...path,join.q];
         tributary=true;

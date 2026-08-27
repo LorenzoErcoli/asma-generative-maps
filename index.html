@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agenzia di Viaggio Immaginaria — generatore di carte</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -71,6 +74,15 @@
     <div class="cap">Scacchiera 8×8. Clicca o trascina per posizionare.<br>
       Le pedine sono lo <b>scheletro</b>: la città cresce intorno.<br>
       Il fiume divide sempre la città in due metà: i ponti li piazza l'algoritmo, non una pedina.</div>
+  </section>
+
+  <!-- fronte della carta: si vede solo in stampa (vedi @media print in
+       style.css), sempre PRIMA di #map cosi' esce come pagina 1, la mappa
+       come pagina 2. Il numero e' scritto da generate() in main.js insieme
+       al "MAPPA N." sul retro, stesso numero su entrambe le facce. -->
+  <section id="front">
+    <embed id="frontPdf" src="assets/fronte.pdf" type="application/pdf">
+    <div id="frontNum">228741</div>
   </section>
 
   <section id="map"><div id="mapHost"></div></section>

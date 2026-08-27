@@ -23,9 +23,20 @@ const MIN_BUILDING_DRAW=180;
 // in "cortile in verde" qui sotto) diventa giardino o resta cortile aperto.
 const RECT_ACCEPT=.34;
 const RAIL_HW=3.5;
-const LANDMARK_FILL={chiesa:'#8e4a6b',municipio:'#c9967a',mercato:'#b5893f',teatro:'#5a7a92',osteria:'#9c6b3a',bottega:'#7c8a52',
-  monumento:'#8a7a8a',torre:'#6b5a44',stazione:'#5a6b8a',porto:'#4a7a8a',biblioteca:'#4a6b82',fontana:'#6f9ab5',locale:'#9c6b8a',
-  ospedale:'#a85454',cinema:'#7a5a8a'};
+// due famiglie di "importanza" invece di una sola: sacro/culturale in
+// sfumature del viola di brand (#674292) — chiesa, teatro, biblioteca,
+// monumento, cinema, i luoghi contemplativi; civico/commerciale in
+// sfumature del giallo di brand (#f29218) — municipio, mercato, stazione
+// eccetera, i luoghi operosi. Dentro ogni famiglia, piu' scuro = piu'
+// "importante" (es. municipio piu' scuro di una bottega), cosi' restano
+// distinguibili a colpo d'occhio senza uscire dalla propria famiglia.
+const LANDMARK_FILL={
+  // sacro / culturale — viola
+  chiesa:'#3d2856',teatro:'#5c3a80',biblioteca:'#46305f',monumento:'#674292',cinema:'#7452a0',
+  // civico / commerciale — giallo
+  municipio:'#8a5410',stazione:'#9c5f0e',porto:'#af6a10',mercato:'#c17512',torre:'#d1841c',
+  ospedale:'#dc9530',fontana:'#e6a748',osteria:'#eeb968',bottega:'#f4c988',locale:'#f8d7a8',
+};
 const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',teatro:'apse',stazione:'shed',fontana:'basin',ospedale:'courtyard'};
 
 /* ---------------- forme organiche (piazze/giardini/verde) ----------------
@@ -279,6 +290,20 @@ function trimRiver(poly,river){
   if(crossesHigh){const q=curvedBank(river,info.q,1,qr);return{poly:clipHalf(poly,nVec,hiAbs,true),quays:q?[q]:[]}}
   return{poly,quays:[]};
 }
+// il mare e' un semipiano dritto (sea.nVec/sea.offset da seaBoundary in
+// world.js), non un nastro con due rive come il fiume: piu' semplice,
+// stesso principio — un vero taglio contro cui la ricorsione si ferma,
+// non un velo disegnato sopra edifici gia' costruiti. Il lato tagliato
+// via diventa il lungomare quando emerge un vero confine (fronte(poly)).
+function trimSea(poly,sea){
+  if(!sea)return{poly,front:null};
+  const proj=poly.map(v=>v[0]*sea.nVec[0]+v[1]*sea.nVec[1]);
+  const lo=Math.min(...proj),hi=Math.max(...proj);
+  if(hi<=sea.offset)return{poly,front:null};
+  if(lo>sea.offset)return{poly:null,front:null};
+  const front=sliceLine(poly,sea.nVec,sea.offset)[0]||null;
+  return{poly:clipHalf(poly,sea.nVec,sea.offset,false),front};
+}
 function segCrossesRiver(a,b,river){
   if(!river)return null;
   const steps=30; let firstIn=-1,lastIn=-1;
@@ -474,6 +499,21 @@ function tryReserveShape(poly,anc,anchors){
 function subdivide(polyIn,depth,ctx,out){
   if(depth>MAX_DEPTH||polyIn.length<3)return;
   if(polyArea(polyIn)<MIN_LEAF)return;
+
+  // A) mare: va tagliato PRIMA delle ancore (sotto), non dopo — un'ancora
+  // (piazza/giardino/collina) non sa nulla del mare e reclamerebbe
+  // volentieri un pezzo di poligono ancora tutto o in parte acqua. Con
+  // acqua pesante (un mare grande) e' esattamente cosi' che si finiva con
+  // migliaia di edifici disegnati oltre costa: la ricorsione entrava in
+  // sezione ancore su un poligono mai ancora bagnato dal taglio del mare,
+  // che allora arrivava troppo tardi (dopo section C, il fiume).
+  if(ctx.sea){
+    const seaTrim=trimSea(polyIn,ctx.sea);
+    if(seaTrim.poly===null)return;
+    polyIn=seaTrim.poly;
+    if(seaTrim.front&&polyArea(polyIn)<BLOCK_TARGET*2.5)out.streets.push({pts:seaTrim.front,depth,rank:'lungomare'});
+    if(polyIn.length<3||polyArea(polyIn)<MIN_LEAF)return;
+  }
 
   // B) ancore: aspetto che il poligono sia gia' abbastanza vicino alla
   // scala dell'ancora prima di tentare il ritaglio.
@@ -816,7 +856,7 @@ function localAxisAngle(boundarySamples,p,radius){
   for(const q of pts){const dx=q[0]-c[0],dy=q[1]-c[1];sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy}
   return .5*Math.atan2(2*sxy,sxx-syy);
 }
-function buildTessuto(cityPoly, river, places, railStations, hills){
+function buildTessuto(cityPoly, river, places, railStations, hills, sea){
   const anchors=places.filter(p=>ANCHOR_CATS.has(p.cat)).map(p=>({
     type:p.cat,pos:[p.x,p.y],name:p.name,done:false,moved:0,fallback:false,
     // un giardino da pedina e' un vero PARCO cittadino, non un'aiuola: deve
@@ -866,7 +906,7 @@ function buildTessuto(cityPoly, river, places, railStations, hills){
     if(info.d<CELL*2.6)return Math.atan2(info.tan[1],info.tan[0]);
     return cityGridAngle;
   }):(()=>cityGridAngle);
-  const ctx={river,anchors,railBands,gridAngleAt};
+  const ctx={river,anchors,railBands,gridAngleAt,sea};
   const out={streets:[],quays:[],buildings:[],reserved:[]};
   subdivide(cityPoly,0,ctx,out);
   out.quays=dedupeQuays(out.quays,river);
@@ -922,6 +962,11 @@ function buildTessuto(cityPoly, river, places, railStations, hills){
       b.landmark={cat:lp.cat,name:lp.name};
       b.footprintParts=landmarkFootprint(b.poly,lp.cat);
       lp.bound=true;
+      // il simbolo va verso un angolo del palazzo vero, non al centro:
+      // altrimenti la sagoma appena disegnata sparisce sotto il bollino
+      // (stessa tecnica del marcatore di piazza in main.js).
+      const ext=orientedExtent(b.poly);
+      lp.iconAnchor=addv(ext.c,ext.dirVec,ext.maxA*.66,ext.nVec,ext.maxN*.66);
     }
   }
 

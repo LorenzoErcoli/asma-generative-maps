@@ -7,7 +7,7 @@ function el(t,c,h){const e=document.createElement(t);if(c)e.className=c;if(h!=nu
 
 let grid=empty(), order=0, tool={type:'place',cat:'chiesa'}, jollyText=Array(NJOLLY).fill('');
 function empty(){return Array.from({length:N},()=>Array(N).fill(null))}
-let lastSVG='',mapDirty=false,lastDiagnostics=null;
+let lastSVG='',mapDirty=false,lastDiagnostics=null,lastMapNum=0;
 const EXTERNAL_GRID_CHANNEL='asma-grid-v1';
 const MARKER_COLOR={rosso:'#ff0d19',arancione:'#ff6600',giallo:'#ffe600',verde:'#19a64a',grigio:'#7d8f98',blu:'#0040ff',viola:'#7549c7',magenta:'#d940a9'};
 const MARKER_SHAPES=['quadrato','cerchio','triangolo','croce','pentagono'];

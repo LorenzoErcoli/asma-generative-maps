@@ -47,6 +47,13 @@ function generate(){
     const cy=cells.reduce((a,[r,c])=>a+W(r+.5),0)/cells.length;
     return {cells,cls,proper,label,cx,cy};
   });
+  // il mare piu' grande ottiene un vero taglio nel tessuto (trimSea, vedi
+  // buildTessuto) esattamente come il fiume: un semipiano "qui e' terra"
+  // calcolato dalla stessa costa che l'ha classificato 'mare'. Senza
+  // questo il mare resta solo un velo disegnato sopra edifici e strade
+  // gia' costruiti, invece di fermarli davvero a una costa.
+  const seaComp=waterComps.filter(c=>c.cls==='mare').sort((a,b)=>b.cells.length-a.cells.length)[0];
+  let sea=seaComp?seaBoundary(seaComp.cells):null;
   const hasWater=terr.water.length>0;
   const places=pawns.filter(p=>p.jolly||!CAT[p.cat].needsWater||(hasWater&&nearWaterCell(p,terr.water)));
   const ignored=pawns.length-places.length;
@@ -59,7 +66,7 @@ function generate(){
   if(!places.length){
     lastDiagnostics=null;
     const msg=ignored?'nessuna pedina valida':'nessuna pedina sulla scacchiera';
-    setMap(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}"><rect width="${SVGW}" height="${SVGH}" fill="${P.land}"/><text x="${MAPW/2}" y="${SVGH/2}" text-anchor="middle" font-size="20" fill="${P.ink}" font-style="italic" font-family="Georgia,serif">terra incognita — ${msg}</text></svg>`,ignored?`${ignored} pedine ignorate.`:'Scacchiera vuota.');
+    setMap(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}"><rect width="${SVGW}" height="${SVGH}" fill="${P.land}"/><text x="${MAPW/2}" y="${SVGH/2}" text-anchor="middle" font-size="20" fill="${P.ink}" font-style="italic" font-family="Archivo,sans-serif">terra incognita — ${msg}</text></svg>`,ignored?`${ignored} pedine ignorate.`:'Scacchiera vuota.');
     return;
   }
 
@@ -86,8 +93,17 @@ function generate(){
   cityLoops.sort((a,b)=>polyArea(b)-polyArea(a));
   const cityPoly=cityLoops[0]||[];
   if(!cityPoly.length){
-    setMap(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}"><rect width="${SVGW}" height="${SVGH}" fill="${P.land}"/><text x="${MAPW/2}" y="${SVGH/2}" text-anchor="middle" font-size="20" fill="${P.ink}" font-style="italic" font-family="Georgia,serif">le pedine sono troppo sparse per formare una città</text></svg>`,'Avvicina le pedine.');
+    setMap(`<svg xmlns="http://www.w3.org/2000/svg" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}"><rect width="${SVGW}" height="${SVGH}" fill="${P.land}"/><text x="${MAPW/2}" y="${SVGH/2}" text-anchor="middle" font-size="20" fill="${P.ink}" font-style="italic" font-family="Archivo,sans-serif">le pedine sono troppo sparse per formare una città</text></svg>`,'Avvicina le pedine.');
     return;
+  }
+  // rete di sicurezza: se il taglio del mare cancellerebbe quasi tutta la
+  // citta' (acqua pesante, pedine finite dal lato sbagliato della costa),
+  // il taglio duro si disattiva invece di produrre una mappa vuota — il
+  // mare resta comunque visibile, solo senza il vero ritaglio nel tessuto.
+  if(sea){
+    const landPoly=clipHalf(cityPoly,sea.nVec,sea.offset,false);
+    const landArea=landPoly.length>=3?polyArea(landPoly):0;
+    if(landArea<polyArea(cityPoly)*.35)sea=null;
   }
 
   /* --- 4. quartieri --- */
@@ -105,7 +121,7 @@ function generate(){
     y:cells.reduce((a,[r,c])=>a+W(r+.5),0)/cells.length,
     n:cells.length,
   }));
-  const {out,bridges,rail,diag}=buildTessuto(cityPoly,river,places,railStations,hills);
+  const {out,bridges,rail,diag}=buildTessuto(cityPoly,river,places,railStations,hills,sea);
 
   // le piazze occupano davvero un pezzo di tessuto (out.reserved): il
   // marcatore d'itinerario si appoggia al bordo di quella forma vera,
@@ -173,7 +189,7 @@ function generate(){
   /* --- 7. render --- */
   const cityChains=tessutoStreetChains(out);
   const S=[];
-  S.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}" font-family="Iowan Old Style, Palatino, Georgia, serif">`);
+  S.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${SVGW}" height="${SVGH}" viewBox="0 0 ${SVGW} ${SVGH}" font-family="Archivo, sans-serif">`);
   S.push(defs(P,cityChains,rivers,cityPoly));
 
   S.push(`<rect width="${SVGW}" height="${SVGH}" fill="${P.land}"/>`);
@@ -182,7 +198,7 @@ function generate(){
   const cfarms=makeFarms(F,WF,villages);
   S.push(countryside(villages,country,cfields,cfarms,P));
 
-  for(const l of cityLoops)S.push(`<path d="${dPoly(l,1)}" fill="${P.built}" opacity=".07" stroke="none"/>`);
+  for(const l of cityLoops)S.push(`<path d="${dPoly(l,1)}" fill="${P.void}" stroke="none"/>`);
   // sotto agli edifici: dove un edificio vero esiste gia' lo ricopre
   // comunque lui, la fascia si vede solo dove prima non c'era nulla.
   S.push(`<g clip-path="url(#cityClip)">${riverbankFillLayer(river,P,out)}</g>`);
@@ -208,7 +224,11 @@ function generate(){
   S.push(frame(P));
   S.push(scaleBar(P));
   S.push(compass(MAPW-70,SVGH-150,P));
-  S.push(sidebar(places,waterComps,terr,ch,P,districts));
+  // stesso numero sul retro (qui) e sul fronte (assets/fronte.pdf, vedi
+  // #frontNum in index.html): un solo numero per carta, non uno a faccia.
+  const mapNum=100000+Math.floor(RND()*900000);
+  lastMapNum=mapNum;
+  S.push(sidebar(places,waterComps,terr,ch,P,districts,mapNum));
   S.push('</svg>');
 
   const split=river&&diag.components>1;
@@ -216,4 +236,5 @@ function generate(){
     +(ignored?` · ${ignored} pedine ignorate`:'')
     +` · componenti stradali: ${diag.components} · vicoli ciechi: ${diag.deadEnds}`
     +(split?' · ⚠ rete stradale non completamente connessa':''));
+  const frontNum=$('frontNum');if(frontNum)frontNum.textContent=mapNum;
 }

@@ -2,14 +2,14 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const root = __dirname;
-const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml' };
+const MIME = { '.html':'text/html', '.js':'application/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.pdf':'application/pdf' };
 const port = process.env.PORT || 8123;
 // server locale di sviluppo per il solo generatore di mappe: serve SOLO la
 // pagina e le cartelle css/js dell'app, mai l'intera cartella del progetto.
 // Qui accanto vivono anche certificati, chiavi e un server AI di un altro
 // strumento (scanner/iPad) — un server statico "qualunque file sotto root"
 // li esporrebbe per errore non appena in ascolto.
-const ALLOW_ROOTS = ['css', 'js'];
+const ALLOW_ROOTS = ['css', 'js', 'assets'];
 function isAllowed(relPath){
   if (relPath === '/index.html' || relPath === '/') return true;
   const top = relPath.split('/')[1];
