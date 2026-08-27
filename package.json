@@ -1,0 +1,19 @@
+{
+  "name": "asma-generative-maps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generatore di carte immaginarie per ASMA — Associazione Schizogeografica di Mappatura Alternativa. Da una scacchiera 8x8 di pedine nasce una citta' completa, pronta per la stampa in A3.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node serve.js",
+    "scanner": "node tools/start-ai.mjs",
+    "setup-https": "node tools/setup-https.mjs",
+    "test": "node tests/generator-smoke.cjs",
+    "audit": "node tests/map-audit.cjs",
+    "fronte": "python tools/render-fronte.py"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

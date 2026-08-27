@@ -130,7 +130,7 @@ function proxyHint(){
   try{
     const url=new URL(raw);
     if((url.hostname==='127.0.0.1'||url.hostname==='localhost')&&url.port==='9'){
-      return ' Il processo ha ereditato il proxy locale bloccante 127.0.0.1:9: avvia start-ai.ps1 da una finestra PowerShell aperta dal menu Start, non dal terminale integrato di Codex.';
+      return ' Il processo ha ereditato il proxy locale bloccante 127.0.0.1:9, che taglia fuori la rete: la camera funziona, la rilettura AI no. Riavvia "npm run scanner" da un terminale nuovo, aperto fuori dall editor.';
     }
     return ` Proxy attivo: ${url.protocol}//${url.hostname}${url.port?`:${url.port}`:''}.`;
   }catch{return ' Controlla le variabili HTTP_PROXY e HTTPS_PROXY del processo.'}
@@ -142,6 +142,10 @@ function normalizedApiKey(){
   if((key.startsWith('"')&&key.endsWith('"'))||(key.startsWith("'")&&key.endsWith("'")))key=key.slice(1,-1);
   key=key.replace(/[\s\u200B-\u200D\u2060\uFEFF]/g,'');
   if(!key)return null;
+  // Il segnaposto di .env.example ha la forma di una chiave vera e passava
+  // il controllo qui sotto: il server annunciava "AI attiva" e poi ogni
+  // chiamata falliva contro OpenAI. Vale come chiave assente.
+  if(/^sk-inserisci/i.test(key))return null;
   if(!/^sk-[A-Za-z0-9_.-]{20,}$/.test(key)){
     throw Object.assign(new Error('Formato chiave API non valido. Incolla soltanto la chiave che inizia con sk-, senza Bearer, virgolette o comandi PowerShell.'),{status:503});
   }
@@ -276,5 +280,7 @@ if(tls){
     for(const address of localAddresses('https',HTTPS_PORT))console.log(`iPad HTTPS: ${address}/scanner.html`);
   });
 }else{
-  console.warn('HTTPS non configurato. Esegui setup-https.ps1 per usare la camera dall iPad.');
+  console.warn('HTTPS non configurato: dall iPad la camera non parte (serve un contesto sicuro).');
+  console.warn('Da questo computer funziona lo stesso su http://localhost.');
+  console.warn('Per abilitare l iPad:  npm run setup-https');
 }
