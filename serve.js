@@ -9,9 +9,15 @@ const port = process.env.PORT || 8123;
 // Qui accanto vivono anche certificati, chiavi e un server AI di un altro
 // strumento (scanner/iPad) — un server statico "qualunque file sotto root"
 // li esporrebbe per errore non appena in ascolto.
-const ALLOW_ROOTS = ['css', 'js', 'assets'];
+const ALLOW_ROOTS = ['css', 'js', 'assets', 'vendor'];
+// scanner.html gira dentro l'iframe di index.html (#scannerFrame) e si porta
+// dietro vendor/opencv.js: senza questi due la console si apre lo stesso ma la
+// parte camera resta un 404. Restano elencati uno per uno, non aperti per
+// estensione: qui accanto vivono anche certificati, chiavi e il server AI.
+const ALLOW_FILES = ['/index.html', '/scanner.html'];
 function isAllowed(relPath){
-  if (relPath === '/index.html' || relPath === '/') return true;
+  if (relPath === '/') return true;
+  if (ALLOW_FILES.includes(relPath)) return true;
   const top = relPath.split('/')[1];
   return ALLOW_ROOTS.includes(top);
 }
