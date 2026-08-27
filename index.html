@@ -80,8 +80,12 @@
        style.css), sempre PRIMA di #map cosi' esce come pagina 1, la mappa
        come pagina 2. Il numero e' scritto da generate() in main.js insieme
        al "MAPPA N." sul retro, stesso numero su entrambe le facce. -->
+  <!-- fronte come IMMAGINE, non come <embed> del PDF: un embed PDF e' un
+       viewport di plugin e il browser non ne stampa mai il contenuto — la
+       pagina 1 usciva bianca col solo numero sopra. assets/fronte.jpg si
+       rigenera dal PDF (che resta la sorgente) con tools/render-fronte.py. -->
   <section id="front">
-    <embed id="frontPdf" src="assets/fronte.pdf" type="application/pdf">
+    <img id="frontImg" src="assets/fronte.jpg" alt="Fronte della carta">
     <div id="frontNum">228741</div>
   </section>
 

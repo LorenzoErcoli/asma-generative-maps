@@ -90,8 +90,10 @@ dialog#legendModal::backdrop{background:rgba(0,0,0,.6)}
 #middle .cap{font-size:11px;color:var(--muted);margin-top:10px;text-align:center;font-style:italic;max-width:290px;line-height:1.5}
 #map{flex:1;height:100%;overflow:auto;background:#0f0c09;display:flex;align-items:center;justify-content:center;padding:12px}
 #map svg{max-width:100%;max-height:100%;box-shadow:0 10px 40px rgba(0,0,0,.6)}
-/* fronte della carta (assets/fronte.pdf): esiste solo per la stampa, mai a
-   schermo — vedi @media print sotto. */
+/* fronte della carta (assets/fronte.jpg, reso da assets/fronte.pdf con
+   tools/render-fronte.py): esiste solo per la stampa, mai a schermo — vedi
+   @media print sotto. E' un'immagine e non un <embed> del PDF perche' un
+   embed PDF in stampa esce bianco, vedi il commento in index.html. */
 #front{display:none}
 #scannerFrame{display:block;width:100%;height:100%;border:0;background:#16120e}
 body.scanner-calibration-open{overflow:hidden}
@@ -106,33 +108,69 @@ body.scanner-calibration-open #cameraDock{position:fixed;inset:14px;z-index:51;w
 .marker-shape.pentagono{clip-path:polygon(50% 0,100% 38%,81% 100%,19% 100%,0 38%)}
 @media print{
   @page{size:A3 landscape;margin:8mm}
+  /* Le altezze pensate per lo schermo vanno azzerate, o restano attive in
+     stampa e generano un TERZO foglio bianco: html/body sono height:100% e
+     100vh, #map e' height:100% — cioe' una pagina intera di altezza per il
+     solo contenitore, che sommata al fronte sfora oltre la pagina 2 e
+     lascia in coda un foglio vuoto. In stampa l'altezza la deve dare il
+     contenuto: il fronte e' alto quanto la sua immagine, la mappa quanto il
+     suo SVG, e le pagine sono esattamente due. */
+  html,body{height:auto;min-height:0;overflow:visible}
   body{display:block;background:#fff}
   #console,#middle{display:none}
-  #map{overflow:visible;background:#fff;padding:0}
+  #map{display:block;height:auto;min-height:0;overflow:visible;background:#fff;padding:0}
+  #mapHost{height:auto}
   /* max-width/max-height in mm, non %: un % qui dipenderebbe dall'altezza
      di #mapHost che e' auto (contenuto), quindi non si risolverebbe in
      stampa. In mm invece sono assoluti — 404x281 = A3 orizzontale (420x297)
      meno i due margini da 8mm di @page sopra. Il rapporto dell'SVG e' gia'
      quello di un A3 (vedi SIDE in world.js), ma un pixel di scarto tra i
      due margini lo assorbe comunque questo doppio vincolo, mai il foglio. */
-  #map svg{box-shadow:none;max-width:404mm;max-height:281mm;width:auto;height:auto}
+  /* display:block sull'SVG non e' cosmetico, e' cio' che toglie il TERZO
+     foglio bianco. Un <svg> e' inline di default: sta su una riga di testo
+     e la riga riserva sotto di se' lo spazio del descender del font. Con
+     max-height:281mm — cioe' ESATTAMENTE l'altezza stampabile — quei pochi
+     punti in piu' facevano un box alto 821pt in un'area che finisce a 819,
+     e i 2.2pt di sforo si portavano dietro una pagina intera. Da blocco,
+     l'SVG non genera riga e il box torna alto quanto il disegno. */
+  #map svg{display:block;box-shadow:none;max-width:404mm;max-height:281mm;width:auto;height:auto}
 
   /* fronte: pagina 1, sempre prima della mappa nel flusso del documento —
      page-break-after la separa dalla mappa (pagina 2) cosi' "Stampa" esce
      su due fogli, fronte poi retro (o fronte/retro dello stesso foglio se
      la stampante e' impostata fronte-retro, non e' cosa che il CSS possa
      decidere). */
-  #front{display:flex;align-items:center;justify-content:center;
-    position:relative;width:100%;height:281mm;page-break-after:always;overflow:visible}
-  #frontPdf{max-width:404mm;max-height:281mm;width:auto;height:auto;border:0}
-  /* posizione del numero sul nastro viola del fronte: da tarare a occhio
-     controllando l'anteprima di stampa, vedi --n-top/--n-left/--n-rot. */
+  /* #front e' grande ESATTAMENTE quanto l'immagine, non quanto la pagina:
+     il numero e' posizionato in percentuale del fronte, quindi se il
+     contenitore fosse piu' largo dell'immagine (fascia vuota ai lati) le
+     percentuali scivolerebbero e il numero uscirebbe dal riquadro "N:".
+     width:fit-content incolla il contenitore all'immagine; il centraggio
+     sul foglio lo fa margin:auto. */
+  #front{display:block;position:relative;width:fit-content;max-width:404mm;
+    margin:0 auto;page-break-after:always;overflow:visible}
+  #frontImg{display:block;max-width:404mm;max-height:281mm;width:auto;height:auto;border:0}
+  /* Posizione del numero dentro il riquadro "N:" del pannello di destra.
+     Misurata scansionando l'immagine del fronte: la porzione scrivibile —
+     quella a destra della scritta "N:" — va da x 86.0% (dove finiscono i
+     glifi "N:") a x 92.5% (dove comincia il bordo destro arrotondato), e
+     sale verso destra di 13.3 gradi. Sono appena 6.5 punti percentuali:
+     a 16pt il numero ne occupava 6.18 e arrivava a filo del bordo, per
+     questo sta a 15pt. Il numero e' centrato in quella porzione — sono
+     sempre sei cifre, quindi la larghezza non cambia da una carta
+     all'altra e la centratura vale per tutte.
+     Il pannello destro NON e' ruotato di 180 gradi come quelli di sinistra
+     del pieghevole, quindi il numero si legge dritto.
+     Per ritoccare basta agire su queste tre variabili. Scala misurata sulla
+     stampa reale: 1 punto percentuale di --n-top = 3.02 mm sul foglio, e 1
+     punto di --n-left = 3.97 mm. Quindi "alzalo di 2 mm" = --n-top meno
+     0.66. NB: l'interno del riquadro e' alto appena 6.15 mm, quindi bastano
+     due millimetri per portare le cifre a filo del bordo superiore. */
   #frontNum{
-    --n-top:10%; --n-left:78%; --n-rot:-6deg;
+    --n-top:65.35%; --n-left:89.25%; --n-rot:-13deg;
     position:absolute;top:var(--n-top);left:var(--n-left);
     transform:translate(-50%,-50%) rotate(var(--n-rot));
     font-family:"Archivo",sans-serif;font-weight:900;font-style:normal;
-    font-size:22pt;color:#1c1c1c;letter-spacing:1px;
+    font-size:15pt;color:#1c1c1c;letter-spacing:.5px;line-height:1;
   }
 }
 @media (max-width:900px){body.scanner-calibration-open #cameraDock{inset:0;border:0;border-radius:0}}
