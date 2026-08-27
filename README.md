@@ -8,21 +8,36 @@ Le pedine sono lo **scheletro**: la città cresce intorno a loro.
 
 ---
 
-## In tre minuti
+## Si parte con un doppio clic
 
-Serve solo **Node.js 18 o superiore**. Nient'altro: il progetto non ha
-dipendenze da installare, `npm install` non serve.
+Serve solo **Node.js 18 o superiore** (sotto c'è come si installa, sono due
+minuti). Nient'altro: il progetto non ha dipendenze, `npm install` non serve.
+
+Poi, nella cartella del progetto, doppio clic su:
+
+| | |
+|---|---|
+| **macOS** | `Avvia ASMA.command` |
+| **Windows** | `Avvia ASMA.bat` |
+
+Si apre una finestra nera che fa tutto da sola: prepara il certificato per la
+camera la prima volta, avvia i due server e apre il browser sul generatore.
+**Per fermare tutto, chiudi quella finestra.**
+
+> **macOS, primo avvio:** se compare *«impossibile aprire: sviluppatore non
+> identificato»*, fai **clic destro sul file → Apri**, e poi Apri di nuovo nel
+> messaggio. Succede solo se il progetto è arrivato come `.zip` scaricato, e
+> solo la prima volta.
+
+Se preferisci il terminale, gli stessi comandi ci sono lì:
 
 ```bash
-git clone https://github.com/LorenzoErcoli/asma-generative-maps.git
-cd asma-generative-maps
-npm start
+npm run avvia     # tutto, come il doppio clic
+npm start         # solo il generatore di carte
 ```
 
-Poi apri **http://localhost:8123** nel browser. Dentro l'interfaccia, il
+Il generatore è su **http://localhost:8123**. Dentro l'interfaccia, il
 pulsante **?** in alto a sinistra spiega come si usa.
-
-Per fermare il server: `Ctrl+C` nel terminale.
 
 ### Installare Node.js
 
@@ -48,6 +63,7 @@ non conosce ancora il comando.
 
 | Comando | Cosa fa |
 |---|---|
+| `npm run avvia` | **Tutto**: certificato, i due server, browser — è quello che fa il doppio clic |
 | `npm start` | Il generatore di carte su http://localhost:8123 — **è questo il progetto** |
 | `npm run scanner` | Lo scanner con la camera, su http://localhost:8765 (facoltativo) |
 | `npm test` | Verifica che il generatore funzioni su questa macchina |
@@ -90,25 +106,27 @@ Serve solo se hai la **scacchiera fisica** con le pedine colorate: una camera
 la inquadra e riempie la griglia al posto tuo. Senza, si lavora benissimo a
 mano — è una comodità, non un requisito.
 
+Se sei partito col doppio clic **è già acceso**: lo trovi su
+http://localhost:8765/scanner.html, e l'indirizzo è scritto nella finestra
+nera. Per avviarlo da solo:
+
 ```bash
 npm run scanner
 ```
-
-Poi apri **http://localhost:8765/scanner.html**.
 
 ### Dall'iPad o dal telefono
 
 Qui serve un passaggio in più. Il browser dà accesso alla fotocamera solo in
 «contesto sicuro»: `https://` oppure `http://localhost`. Dal computer stesso
 localhost basta; da un altro dispositivo l'indirizzo è `http://192.168.x.x`,
-che non lo è. Quindi serve un certificato locale:
+che non lo è. Quindi serve un certificato locale — che **il doppio clic
+genera da solo al primo avvio**, senza chiedere niente. Se ti serve rifarlo:
 
 ```bash
 npm run setup-https
-npm run scanner
 ```
 
-Il terminale stampa l'indirizzo da usare sull'iPad. La prima volta devi anche
+La finestra nera stampa l'indirizzo da usare sull'iPad. La prima volta devi anche
 fidarti del certificato:
 
 1. sull'iPad apri `http://<ip-del-computer>:8765/certs/asma-local-ca.cer`

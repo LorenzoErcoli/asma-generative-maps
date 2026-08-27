@@ -1,0 +1,19 @@
+# I file di avvio sono sensibili alle fine-riga e vengono lanciati dal
+# sistema operativo, non da un editor: qui si fissano, cosi' non dipendono
+# dalla configurazione git di chi clona.
+#
+# Un .command con fine-riga CRLF su macOS non parte e dice soltanto
+# "bad interpreter: /bin/bash^M", che non aiuta nessuno.
+*.command text eol=lf
+*.sh      text eol=lf
+*.mjs     text eol=lf
+*.cjs     text eol=lf
+# I .bat vogliono l'opposto: CRLF.
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
+
+# Binari: mai toccati.
+*.pdf  binary
+*.jpg  binary
+*.png  binary
+*.zip  binary
