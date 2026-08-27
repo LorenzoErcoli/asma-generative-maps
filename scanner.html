@@ -231,7 +231,14 @@ const TOKEN_MATCH_SIZE=40;
 const BOARD_SCAN_SIZE=400;
 const READ_ICONS=true;
 const CAT_COLOR=Object.fromEntries(ICONS.map(i=>[i.id,i.colorHex]));
-const COLOR_TEST_COLUMNS=MARKER_COLORS.map(color=>({kind:'place',cat:`${color.id}-quadrato`,id:color.id,hex:color.hex}));
+// verde e blu non sono pedine-luogo: sono terreno "grezzo" (rispettivamente
+// giardino/collina/montagna e acqua, decisi dall'agglomerato di celle una
+// volta piazzate — vedi ui.js/world.js). Non hanno bisogno di una forma
+// sopra per essere riconosciuti, a differenza degli altri 6 colori.
+const TERRAIN_MARKER_COLORS={blu:'water',verde:'green'};
+const COLOR_TEST_COLUMNS=MARKER_COLORS.map(color=>TERRAIN_MARKER_COLORS[color.id]
+  ?{kind:'terrain',terrain:TERRAIN_MARKER_COLORS[color.id],id:color.id,hex:color.hex}
+  :{kind:'place',cat:`${color.id}-quadrato`,id:color.id,hex:color.hex});
 let stream=null, staticFrame=null, drawLoopActive=false, corners=[], lastGrid=Array.from({length:N},()=>Array(N).fill(null)), boardVision=emptyVision(), ord=0;
 let lastSentSignature='', lastDebug=[], trackQuality=0, draggingCorner=-1, manualMode=false, readTerrains=false, assumeFullGrid=false;
 let lastGlobalDetectorError='';
@@ -969,10 +976,14 @@ function buildGlobalBoardVision(samples){
       const c=Math.max(0,Math.min(N-1,Math.floor(pawn.x/cell)));
       const shape=classifyShapeOnBoard(board,pawn);
       const color=pawn.profile.color;
+      const isTerrainColor=color?.kind==='terrain';
       const presenceConfidence=Math.min(.99,.58+pawn.profile.coverage*.39);
       const colorConfidence=Math.max(0,Math.min(.99,pawn.profile.coverage*(1-Math.min(1,(color.d||0)/110))));
       const shapeConfidence=shape.confidence||0;
-      const score=shape.id?shapeConfidence:presenceConfidence;
+      // verde/blu (terreno "grezzo"): il colore basta, non serve un'icona
+      // sopra — vedi TERRAIN_MARKER_COLORS. Per tutti gli altri colori
+      // (pedine-luogo vere) serve ancora la forma, come prima.
+      const score=isTerrainColor?colorConfidence:(shape.id?shapeConfidence:presenceConfidence);
       if(out[r][c].pawn&&(out[r][c].presenceConfidence||0)>=presenceConfidence)continue;
       const center={x:pawn.x/cell-c-.5,y:pawn.y/cell-r-.5};
       out[r][c].pawn=true;
@@ -985,7 +996,8 @@ function buildGlobalBoardVision(samples){
       out[r][c].shapeConfidence=shapeConfidence;
       out[r][c].ink=shape.ink||0;
       out[r][c].top=shape.top||[];
-      if(shape.id)out[r][c].cat=`${color.id}-${shape.id}`;
+      if(isTerrainColor)out[r][c].terrain=color.terrain;
+      else if(shape.id)out[r][c].cat=`${color.id}-${shape.id}`;
       out[r][c].debug=globalPawnDebug(pawn,shape,center);
     }
     for(const candidate of borderline){
