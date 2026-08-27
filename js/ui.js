@@ -98,6 +98,9 @@ function renderLegend(){
   }
   host.innerHTML=html;
 }
+$('btnHelp').onclick=()=>$('helpModal').showModal();
+$('helpClose').onclick=()=>$('helpModal').close();
+$('helpModal').addEventListener('click',e=>{if(e.target===$('helpModal'))$('helpModal').close()});
 $('btnLegend').onclick=()=>{renderLegend();$('legendModal').showModal()};
 $('legendClose').onclick=()=>$('legendModal').close();
 $('legendModal').addEventListener('click',e=>{if(e.target===$('legendModal'))$('legendModal').close()});

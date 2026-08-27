@@ -11,8 +11,13 @@
 </head>
 <body>
   <aside id="console">
-    <h1>Cartografo · console</h1>
-    <p class="sub">taccuino dell'operatore</p>
+    <div class="console-head">
+      <div>
+        <h1>Cartografo · console</h1>
+        <p class="sub">taccuino dell'operatore</p>
+      </div>
+      <button id="btnHelp" class="help-btn" title="Come si usa" aria-label="Come si usa">?</button>
+    </div>
 
     <div class="group">
       <h2>Carattere della sessione</h2>
@@ -90,6 +95,43 @@
   </section>
 
   <section id="map"><div id="mapHost"></div></section>
+
+  <!-- Istruzioni d'uso. Il testo sta qui e non in un file a parte perche'
+       chi apre lo strumento deve poterle leggere senza uscirne. Le note su
+       come INSTALLARE il progetto stanno invece nel README. -->
+  <dialog id="helpModal">
+    <div class="legend-head">
+      <h2>Come si usa</h2>
+      <button id="helpClose" class="legend-close" aria-label="Chiudi" title="Chiudi">&times;</button>
+    </div>
+    <div class="legend-sub">Da una scacchiera di pedine nasce una città intera: strade, isolati, quartieri, nomi. Le pedine sono lo <b>scheletro</b>, il resto lo costruisce il cartografo.</div>
+    <div id="helpBody">
+      <ol class="help-steps">
+        <li><b>Scegli il carattere della sessione.</b> Decide il tono dei nomi e la tavolozza: una città «festaiola» non si chiama come una «classica».</li>
+        <li><b>Posa le pedine sulla scacchiera 8×8.</b> Scegli un pennello a sinistra, poi clicca o trascina sulle caselle. La gomma toglie. Ogni pedina è un luogo che esisterà davvero sulla carta.</li>
+        <li><b>Premi ✦ Genera la carta.</b> Ogni scacchiera produce sempre la stessa città: cambiala anche di una casella e la città cambia con lei.</li>
+        <li><b>Stampa</b> (due fogli A3: il fronte del pieghevole e la mappa) oppure <b>Esporta SVG</b> se vuoi ritoccarla altrove.</li>
+      </ol>
+
+      <div class="help-note">
+        <h3>Tre regole che conviene sapere</h3>
+        <p><b>L'acqua decide da sola cos'è.</b> Non scegli tu fra fiume, lago e mare: lo decide come le caselle d'acqua si toccano. Attraversa la scacchiera da bordo a bordo? È un fiume. Altrimenti è acqua ferma.</p>
+        <p><b>I ponti non sono una pedina.</b> Il fiume divide sempre la città in due, e i ponti li piazza l'algoritmo dove servono a tenerla unita.</p>
+        <p><b>I luoghi si aggrappano agli edifici veri.</b> Una chiesa non è un'icona appoggiata sopra: è un palazzo del tessuto, scelto fra quelli abbastanza grandi lì vicino.</p>
+      </div>
+
+      <div class="help-note">
+        <h3>La camera (facoltativa)</h3>
+        <p>Serve solo se hai la scacchiera <i>fisica</i> con le pedine colorate: la camera le legge e riempie la griglia al posto tuo. Si avvia a parte, con <code>npm run scanner</code>. Senza, si lavora benissimo a mano.</p>
+        <p>Il pulsante <b>Legenda pedine</b> qui a sinistra mostra quale colore e quale forma corrispondono a quale luogo.</p>
+      </div>
+
+      <div class="help-note">
+        <h3>Se qualcosa non parte</h3>
+        <p>Le istruzioni di installazione — cosa serve, come si avvia su Mac e su Windows, cosa fare quando la camera non si vede — stanno nel file <code>README.md</code> nella cartella del progetto.</p>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="legendModal">
     <div class="legend-head">
