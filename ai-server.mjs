@@ -194,10 +194,29 @@ async function callVision(mode,image,tokens=[],calibration=[]){
   catch{throw Object.assign(new Error('La risposta AI non rispetta il formato previsto.'),{status:502})}
 }
 
+// Questo server ascolta su 0.0.0.0 — deve, perche' l'iPad lo raggiunge dalla
+// rete locale. Percio' NON puo' servire "qualunque file sotto la cartella":
+// qui accanto vivono .env.local con la chiave OpenAI, la password del
+// certificato e la chiave privata del server, e prima di questo elenco
+// erano tutti scaricabili da chiunque fosse sulla stessa Wi-Fi. Verificato:
+// GET /.env.local rispondeva 200 con la chiave in chiaro.
+// Vale la stessa regola di serve.js: si elenca cosa si serve, uno per uno.
+const ALLOW_ROOTS=['css','js','assets','vendor'];
+const ALLOW_FILES=['/index.html','/scanner.html','/ipad-board.html','/icon-lab.html'];
+// unica eccezione dentro certs/: la CA e' pubblica per definizione ed e' il
+// file che l'iPad deve poter scaricare. La chiave privata e la password che
+// le stanno accanto restano fuori.
+const ALLOW_EXACT=['/certs/asma-local-ca.cer'];
+function isAllowed(pathname){
+  if(ALLOW_FILES.includes(pathname)||ALLOW_EXACT.includes(pathname))return true;
+  return ALLOW_ROOTS.includes(pathname.split('/')[1]);
+}
+
 async function serveStatic(req,res){
   const url=new URL(req.url,'http://localhost');
   let pathname=decodeURIComponent(url.pathname);
   if(pathname==='/')pathname='/scanner.html';
+  if(!isAllowed(pathname))return json(res,404,{error:'File non trovato.'});
   const file=resolve(ROOT,`.${pathname}`);
   if(file!==ROOT&&!file.startsWith(ROOT.endsWith(sep)?ROOT:ROOT+sep))return json(res,403,{error:'Percorso non consentito.'});
   try{
