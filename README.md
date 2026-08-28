@@ -247,6 +247,17 @@ Quasi sempre è il certificato: rifai `npm run setup-https -- --force` dopo aver
 verificato che iPad e computer sono sulla stessa Wi-Fi, e ricontrolla che
 «ASMA Local Camera CA» sia attivo fra i certificati attendibili.
 
+**Ho messo una pedina e sulla carta non c'è**
+Guarda la riga di stato sotto i pulsanti: se dice «⚠ N pedine non hanno
+trovato posto», quelle pedine sono cadute fuori dalla sagoma della città.
+Succede quasi solo sul **bordo esterno** della scacchiera (riga o colonna 0 e
+7), soprattutto se la pedina è isolata e lontana dalle altre: lì la città
+spesso non arriva, e un luogo si aggancia a un edificio vero, non al vuoto.
+Spostala di una casella verso il centro e comparirà.
+
+Se invece dice «N pedine ignorate», è un'altra cosa: porto e faro vogliono
+acqua adiacente, senza non vengono piazzati.
+
 **In stampa esce una pagina bianca di troppo**
 Nel dialogo di stampa controlla che la scala sia «predefinita» e non
 «personalizzata»: una scala manuale può far sforare la mappa sulla pagina

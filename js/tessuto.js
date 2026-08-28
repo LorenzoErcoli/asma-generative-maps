@@ -1157,17 +1157,36 @@ function buildTessuto(cityPoly, river, places, railStations, hills, sea){
   // a portata, mentre un lotto ben piu' grande stava a pochi passi in piu'.
   const claimed=new Set();
   const BIG_LANDMARK=new Set(['chiesa','municipio','mercato','teatro','stazione','cinema','tribunale']);
+  // Una pedina sul bordo esterno della scacchiera (riga o colonna 0 e 7)
+  // cade spesso FUORI dalla sagoma della citta': li' non ci sono edifici, e
+  // con un raggio fisso non trovava niente a cui agganciarsi e spariva —
+  // in silenzio, che e' la parte peggiore: l'utente aveva messo una pedina
+  // e sulla carta non c'era nulla, senza uno straccio di spiegazione.
+  // Misurato: 8 pedine tutte sul bordo -> una non compariva; le stesse 8
+  // spostate di una casella verso l'interno -> tutte presenti.
+  // Quindi, se il raggio normale non basta, si allarga: meglio il luogo
+  // agganciato al palazzo utile piu' vicino — al margine della citta',
+  // dalla parte giusta — che il luogo inesistente.
+  const RAGGIO_DISPERATO=CELL*4;
   for(const lp of landmarkPawns){
     const prefersBig=BIG_LANDMARK.has(lp.cat);
     const searchR=prefersBig?CELL*1.9:CELL*1.4;
     let best=-1,bestScore=Infinity;
-    out.buildings.forEach((b,i)=>{
-      if(claimed.has(i)||b.landmark||b.A<MIN_BUILDING_DRAW)return;
-      const d=dist([lp.x,lp.y],b.c);
-      if(d>searchR)return;
-      const score=prefersBig?d-Math.sqrt(b.A)*.7:d;
-      if(score<bestScore){bestScore=score;best=i}
-    });
+    const cerca=raggio=>{
+      best=-1;bestScore=Infinity;
+      out.buildings.forEach((b,i)=>{
+        if(claimed.has(i)||b.landmark||b.A<MIN_BUILDING_DRAW)return;
+        const d=dist([lp.x,lp.y],b.c);
+        if(d>raggio)return;
+        // nel ripiego conta solo la vicinanza: a quella distanza preferire
+        // un lotto grande porterebbe il luogo ancora piu' lontano da dove
+        // e' stata messa la pedina.
+        const score=(prefersBig&&raggio===searchR)?d-Math.sqrt(b.A)*.7:d;
+        if(score<bestScore){bestScore=score;best=i}
+      });
+    };
+    cerca(searchR);
+    if(best<0)cerca(RAGGIO_DISPERATO);
     if(best>=0){
       claimed.add(best);
       const b=out.buildings[best];

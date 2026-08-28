@@ -238,8 +238,16 @@ function generate(){
   S.push('</svg>');
 
   const split=river&&diag.components>1;
+  // Una pedina che non trova posto nel tessuto non deve sparire in silenzio:
+  // chi l'ha messa deve sapere che sulla carta non c'e', e perche'. Succede
+  // quasi solo sul bordo esterno della scacchiera, dove la citta' spesso non
+  // arriva (vedi il ripiego in tessuto.js, che ormai ne recupera quasi
+  // tutte). Il numero delle ancore irrisolte conta allo stesso modo: anche
+  // quelle sono luoghi chiesti e non comparsi.
+  const nonComparsi=(diag.landmarksTotal-diag.landmarksBound)+diag.anchorsUnresolved;
   setMap(S.join(''),`${places.length} luoghi · ${out.buildings.length} edifici · ${cityChains.length} strade con nome · ${districts.length} quartieri`
     +(ignored?` · ${ignored} pedine ignorate`:'')
+    +(nonComparsi?` · ⚠ ${nonComparsi} ${nonComparsi===1?'pedina non ha trovato posto':'pedine non hanno trovato posto'} (spostale verso il centro della scacchiera)`:'')
     +` · componenti stradali: ${diag.components} · vicoli ciechi: ${diag.deadEnds}`
     +(split?' · ⚠ rete stradale non completamente connessa':''));
   const frontNum=$('frontNum');if(frontNum)frontNum.textContent=mapNum;
