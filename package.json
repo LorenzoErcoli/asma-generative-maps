@@ -8,6 +8,7 @@
     "avvia": "node tools/avvia.mjs",
     "start": "node serve.js",
     "scanner": "node tools/start-ai.mjs",
+    "diagnosi": "node tools/diagnosi.mjs",
     "setup-https": "node tools/setup-https.mjs",
     "test": "node tests/generator-smoke.cjs",
     "audit": "node tests/map-audit.cjs",

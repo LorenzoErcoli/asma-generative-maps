@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
 
 const ROOT=fileURLToPath(new URL('.',import.meta.url));
-function loadEnvFile(fileName){
+// Da dove viene ogni valore: serve a dire in chiaro quale file ha vinto
+// quando qualcosa non torna, invece di lasciare indovinare.
+const ENV_ORIGINE={};
+function loadEnvFile(fileName,sovrascrivi){
   const file=resolve(ROOT,fileName);
   if(!existsSync(file))return;
   for(const rawLine of readFileSync(file,'utf8').split(/\r?\n/)){
@@ -19,11 +22,41 @@ function loadEnvFile(fileName){
     if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))continue;
     let value=line.slice(separator+1).trim();
     if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'")))value=value.slice(1,-1);
-    if(process.env[name]==null||process.env[name]==='')process.env[name]=value;
+    const vuoto=process.env[name]==null||process.env[name]==='';
+    // Chi e' arrivato dall'ambiente del terminale comanda sempre: e' una
+    // scelta esplicita di chi lancia il comando, piu' forte di un file.
+    if(vuoto||(sovrascrivi&&ENV_ORIGINE[name])){
+      process.env[name]=value;
+      ENV_ORIGINE[name]=fileName;
+    }else if(vuoto===false&&!ENV_ORIGINE[name]){
+      ENV_ORIGINE[name]='ambiente del terminale';
+    }
   }
 }
-loadEnvFile('.env');
-loadEnvFile('.env.local');
+// .env.local DOPO .env e con diritto di sovrascrivere: e' la convenzione
+// ovunque, ed e' quello che promette il README ("scrivi la chiave in
+// .env.local"). Prima .env veniva letto per primo e vinceva, quindi un
+// .env rimasto col segnaposto di .env.example copriva in silenzio la
+// chiave vera messa in .env.local, e il server diceva soltanto "chiave non
+// configurata" — con la chiave lì, nel file giusto, sotto gli occhi.
+function caricaEnv(){
+  loadEnvFile('.env',false);
+  loadEnvFile('.env.local',true);
+}
+caricaEnv();
+// I file vengono letti all'avvio, e questo e' il secondo inciampo classico:
+// si incolla la chiave nel file col server gia' acceso, non cambia niente,
+// e sembra che la chiave non venga accettata. Quando manca si rileggono i
+// file prima di rispondere "non c'e'": costa due letture di poche righe e
+// solo nel caso in cui qualcosa e' gia' storto.
+function ricaricaEnvSeServe(){
+  const prima=process.env.OPENAI_API_KEY;
+  for(const nome of ['OPENAI_API_KEY','OPENAI_VISION_MODEL'])delete ENV_ORIGINE[nome];
+  process.env.OPENAI_API_KEY='';
+  caricaEnv();
+  if(!process.env.OPENAI_API_KEY&&prima)process.env.OPENAI_API_KEY=prima;
+  return process.env.OPENAI_API_KEY;
+}
 const PORT=Number(process.env.PORT||8765);
 const HTTPS_PORT=Number(process.env.HTTPS_PORT||8766);
 const MODEL=process.env.OPENAI_VISION_MODEL||'gpt-5.6-terra';
@@ -136,8 +169,29 @@ function proxyHint(){
   }catch{return ' Controlla le variabili HTTP_PROXY e HTTPS_PROXY del processo.'}
 }
 
-function normalizedApiKey(){
+// Perche' la chiave e' stata rifiutata: "non configurata" da solo mandava a
+// cercare nel posto sbagliato: sul Mac la chiave c'era, nel file giusto, ma
+// era coperta da un .env rimasto col segnaposto.
+let KEY_ORIGINE=null;
+function diagnosiChiave(){
+  const grezza=String(process.env.OPENAI_API_KEY||'').trim();
+  const da=ENV_ORIGINE.OPENAI_API_KEY||(grezza?'ambiente del terminale':null);
+  const dove=da?` (valore letto da ${da})`:'';
+  if(!grezza)return 'OPENAI_API_KEY non trovata: scrivila in .env.local, alla riga OPENAI_API_KEY=sk-...';
+  if(/^sk-inserisci/i.test(grezza))
+    return `OPENAI_API_KEY e ancora il segnaposto di esempio${dove}: sostituiscilo con la chiave vera.`;
+  if(!/^sk-[A-Za-z0-9_.-]{20,}$/.test(grezza.replace(/^Bearer\s+/i,'').replace(/^["']|["']$/g,'')))
+    return `OPENAI_API_KEY non ha la forma di una chiave${dove}: deve iniziare con sk- e non contenere spazi, virgolette o "Bearer".`;
+  return `OPENAI_API_KEY non utilizzabile${dove}.`;
+}
+function normalizedApiKey(riletto){
   let key=String(process.env.OPENAI_API_KEY||'').trim();
+  // niente chiave utilizzabile: prima di arrendersi, rileggi i file — puo'
+  // essere stata incollata dopo l'avvio.
+  if((!key||/^sk-inserisci/i.test(key))&&!riletto){
+    ricaricaEnvSeServe();
+    return normalizedApiKey(true);
+  }
   key=key.replace(/^Bearer\s+/i,'').trim();
   if((key.startsWith('"')&&key.endsWith('"'))||(key.startsWith("'")&&key.endsWith("'")))key=key.slice(1,-1);
   key=key.replace(/[\s\u200B-\u200D\u2060\uFEFF]/g,'');
@@ -146,6 +200,7 @@ function normalizedApiKey(){
   // il controllo qui sotto: il server annunciava "AI attiva" e poi ogni
   // chiamata falliva contro OpenAI. Vale come chiave assente.
   if(/^sk-inserisci/i.test(key))return null;
+  KEY_ORIGINE=ENV_ORIGINE.OPENAI_API_KEY||'ambiente del terminale';
   if(!/^sk-[A-Za-z0-9_.-]{20,}$/.test(key)){
     throw Object.assign(new Error('Formato chiave API non valido. Incolla soltanto la chiave che inizia con sk-, senza Bearer, virgolette o comandi PowerShell.'),{status:503});
   }
@@ -154,7 +209,7 @@ function normalizedApiKey(){
 
 async function callVision(mode,image,tokens=[],calibration=[]){
   const apiKey=normalizedApiKey();
-  if(!apiKey)throw Object.assign(new Error('OPENAI_API_KEY non configurata sul server locale.'),{status:503});
+  if(!apiKey)throw Object.assign(new Error(diagnosiChiave()),{status:503});
   const spec=requestSpec(mode,image,tokens);
   const content=mode==='corners'?
     [{type:'input_text',text:spec.prompt},{type:'input_image',image_url:spec.image,detail:'original'}]:
@@ -233,7 +288,8 @@ async function handleRequest(req,res){
     if(req.method==='GET'&&req.url==='/api/ai/status'){
       let available=false,error=null;
       try{available=!!normalizedApiKey()}catch(cause){error=cause.message}
-      return json(res,200,{available,model:MODEL,error});
+      if(!available&&!error)error=diagnosiChiave();
+      return json(res,200,{available,model:MODEL,error,source:available?KEY_ORIGINE:null});
     }
     if(req.method==='POST'&&req.url==='/api/vision-scan'){
       const body=await readJson(req);
@@ -287,7 +343,7 @@ httpServer.listen(PORT,'0.0.0.0',()=>{
   for(const address of localAddresses('http',PORT))console.log(`Certificato iPad: ${address}/certs/asma-local-ca.cer`);
   let aiReady=false;
   try{aiReady=!!normalizedApiKey()}catch{}
-  console.log(aiReady?`AI attiva (${MODEL}, chiave da .env.local).`:'AI disattiva: compila OPENAI_API_KEY in .env.local e riavvia il server.');
+  console.log(aiReady?`AI attiva (${MODEL}, chiave da ${KEY_ORIGINE||'.env.local'}).`:`AI disattiva: ${diagnosiChiave()}`);
   const hint=proxyHint();
   if(hint)console.warn(`Attenzione:${hint}`);
 });

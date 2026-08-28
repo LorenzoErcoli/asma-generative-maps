@@ -66,6 +66,7 @@ non conosce ancora il comando.
 | `npm run avvia` | **Tutto**: certificato, i due server, browser — è quello che fa il doppio clic |
 | `npm start` | Il generatore di carte su http://localhost:8123 — **è questo il progetto** |
 | `npm run scanner` | Lo scanner con la camera, su http://localhost:8765 (facoltativo) |
+| `npm run diagnosi` | Dice perché la rilettura AI non parte: quale file dà la chiave, quali server rispondono |
 | `npm test` | Verifica che il generatore funzioni su questa macchina |
 | `npm run audit` | Controllo completo su 24 scacchiere, con galleria HTML dei risultati |
 | `npm run setup-https` | Certificato locale, solo per usare la camera da un iPad |
@@ -185,6 +186,19 @@ dello scanner, ed escluso da Git):
 OPENAI_API_KEY=sk-...
 ```
 
+**`.env.local` vince su `.env`**, che è la convenzione ovunque. Se esiste
+anche un `.env` con dentro il segnaposto di esempio, non fa danni: conta
+quello che c'è in `.env.local`.
+
+Se il server dice che la chiave non c'è e tu sei sicuro del contrario:
+
+```bash
+npm run diagnosi
+```
+
+Stampa quale file fornisce la chiave (mascherata), se ha la forma giusta,
+quali server rispondono e cosa dice lo stato AI. Non serve indovinare.
+
 ---
 
 ## Se qualcosa non va
@@ -213,6 +227,12 @@ in rosso. Quasi sempre è una cartella spostata: `js/`, `css/`, `assets/` e
 **Il riquadro della camera dice 404**
 Stai usando `npm start`, che serve solo il generatore. Lo scanner è un server
 a parte: `npm run scanner`.
+
+**«OPENAI_API_KEY non configurata» ma la chiave c'è**
+Lancia `npm run diagnosi`, che dice quale file la fornisce davvero. Le due
+cause storiche sono state corrette: un `.env` rimasto col segnaposto non
+copre più `.env.local`, e la chiave incollata a server acceso viene rilevata
+senza riavviare.
 
 **La camera non parte sull'iPad**
 Quasi sempre è il certificato: rifai `npm run setup-https -- --force` dopo aver
