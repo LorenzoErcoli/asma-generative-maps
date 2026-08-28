@@ -9,6 +9,7 @@
     "start": "node serve.js",
     "scanner": "node tools/start-ai.mjs",
     "diagnosi": "node tools/diagnosi.mjs",
+    "pacchetto": "node tools/pacchetto.mjs",
     "setup-https": "node tools/setup-https.mjs",
     "test": "node tests/generator-smoke.cjs",
     "audit": "node tests/map-audit.cjs",

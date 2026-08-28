@@ -17,3 +17,11 @@
 *.jpg  binary
 *.png  binary
 *.zip  binary
+
+# Materiale di sviluppo: resta nel repository, ma NON finisce nei pacchetti
+# creati con "git archive" (npm run pacchetto). Sono 41 MB di mappe di prova
+# rigenerabili in ogni momento con "npm run audit": a chi riceve il progetto
+# per usarlo non servono, e quadruplicavano il peso dello zip.
+tests/artifacts/       export-ignore
+archive/               export-ignore
+index-v01-backup.html  export-ignore

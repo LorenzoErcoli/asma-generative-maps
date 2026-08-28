@@ -5,3 +5,4 @@ certs/
 !.env.example
 /chiave
 node_modules/
+ASMA.zip
