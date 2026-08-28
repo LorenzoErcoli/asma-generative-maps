@@ -133,6 +133,11 @@
       <button id="matrixTest">Rileva e valuta 8 x 5</button>
       <button id="resetCalibration">Reset calibrazione</button>
     </div>
+    <div class="calibration-actions">
+      <button id="salvaCalibrazione">Scarica calibrazione</button>
+      <button id="caricaCalibrazioneButton">Carica calibrazione</button>
+      <input id="caricaCalibrazione" type="file" accept="application/json" hidden>
+    </div>
     <div class="calibration-results"><canvas id="calibrationCrop" width="400" height="400"></canvas><div id="calibGuide"></div><div id="matrixReport"></div></div>
   </div>
 </dialog>
@@ -2186,6 +2191,78 @@ document.getElementById('resetCalibration').onclick=()=>{
   localStorage.removeItem(COLOR_CAL_KEY);localStorage.removeItem(BOARD_CAL_KEY);
   document.getElementById('calibrateBoard').classList.remove('active');
   setStatus('Calibrazione colore e base cancellata.');
+};
+/* ---------------- la calibrazione, in un file a parte ----------------
+   La calibrazione vive nel localStorage di QUESTO browser: basta svuotare i
+   dati del sito, cambiare dispositivo o rifare da capo l'installazione e
+   sono da rifare tutti e otto i colori con le pedine in mano. Qui la si
+   scarica in un file piccolo — solo i riferimenti di colore e la base, niente
+   fotogramma — e la si ricarica quando serve, anche dopo un aggiornamento
+   invasivo dell'applicazione. Lo snapshot completo resta un'altra cosa: quello
+   porta con se' anche l'immagine e serve a farmi debuggare un frame vero. */
+const CALIBRAZIONE_FILE_VERSION=1;
+function calibrazioneCorrente(){
+  return {
+    app:'asma-scanner',
+    kind:'calibrazione',
+    version:CALIBRAZIONE_FILE_VERSION,
+    createdAt:new Date().toISOString(),
+    colorCalibration,
+    boardCalibration,
+  };
+}
+function descriviCalibrazione(cal){
+  const n=cal?.colorCalibration?.colors?.length||0;
+  const quando=cal?.colorCalibration?.createdAt||cal?.createdAt;
+  return `${n?n+' colori':'nessun colore'}${cal?.boardCalibration?' + base':''}`
+    +(quando?` (${new Date(quando).toLocaleString()})`:'');
+}
+document.getElementById('salvaCalibrazione').onclick=()=>{
+  if(!colorCalibration&&!boardCalibration){
+    setStatus("Non c'e' ancora niente da salvare: calibra prima i colori o la base.");
+    return;
+  }
+  const cal=calibrazioneCorrente();
+  const blob=new Blob([JSON.stringify(cal,null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`asma-calibrazione-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  setStatus('Calibrazione scaricata: '+descriviCalibrazione(cal)+'. Tienila da parte: si ricarica con "Carica calibrazione".');
+};
+// accetta sia un file di calibrazione sia uno snapshot completo: dentro c'e'
+// la stessa roba, e chi ha in mano un vecchio snapshot non deve saperlo.
+function applicaCalibrazione(payload,origine){
+  const colore=payload?.colorCalibration||null;
+  const base=payload?.boardCalibration||null;
+  if(!colore&&!base)throw new Error('il file non contiene nessuna calibrazione');
+  if(colore&&!Array.isArray(colore.colors))throw new Error("la calibrazione colore e' incompleta");
+  if(colore){
+    if(colore.colors.length!==MARKER_COLORS.length)
+      setStatus(`Attenzione: la calibrazione ha ${colore.colors.length} colori invece di ${MARKER_COLORS.length}.`);
+    colorCalibration=colore;
+    localStorage.setItem(COLOR_CAL_KEY,JSON.stringify(colorCalibration));
+  }
+  if(base){
+    boardCalibration=base;
+    localStorage.setItem(BOARD_CAL_KEY,JSON.stringify(boardCalibration));
+    document.getElementById('calibrateBoard').classList.add('active');
+  }
+  assumeFullGrid=false;
+  setStatus(`Calibrazione ripristinata da ${origine}: ${descriviCalibrazione(payload)}.`);
+  if(corners.length===4)scan(true);
+}
+document.getElementById('caricaCalibrazioneButton').onclick=()=>document.getElementById('caricaCalibrazione').click();
+document.getElementById('caricaCalibrazione').onchange=async event=>{
+  const file=event.target.files?.[0];
+  event.target.value='';
+  if(!file)return;
+  try{
+    applicaCalibrazione(JSON.parse(await file.text()),file.name);
+  }catch(error){
+    setStatus(`Calibrazione non caricata: ${error?.message||error}`);
+  }
 };
 document.getElementById('copyDebug').onclick=()=>{
   const txt=JSON.stringify(lastDebug,null,2);
