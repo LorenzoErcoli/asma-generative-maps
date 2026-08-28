@@ -121,9 +121,38 @@ function sagoma(shape,size){
 function simboloCarta(cat){
   const nome=CAT[cat]&&CAT[cat].icon;
   if(!nome||!ICON[nome])return '';
+  // vector-effect: lo spessore del tratto non deve seguire la scala che
+  // normalizzaSimboli applica qui sotto, o le icone piu' piccole
+  // risulterebbero disegnate con una penna piu' grossa delle altre.
   return `<svg viewBox="-14 -14 28 28" width="30" height="30">
-    <g stroke="#211c17" fill="none" stroke-width="1.7"
+    <g class="ico" stroke="#211c17" fill="none" stroke-width="1.7"
+       vector-effect="non-scaling-stroke"
        stroke-linecap="round" stroke-linejoin="round">${ICON[nome]}</g></svg>`;
+}
+
+// Le icone di ICON sono disegnate attorno all'origine ma NON simmetriche:
+// il boccale sborda a destra, la nota musicale in basso, il martello a
+// sinistra, e le dimensioni vanno dal minuscolo obelisco al largo letto.
+// Sulla carta non si nota, perche' ognuna e' posata sul suo edificio; in
+// una griglia come questa l'occhio vede subito che non stanno in colonna
+// col cerchio sopra. Qui si misura il riquadro VERO di ogni tracciato e lo
+// si centra e riscala a un'altezza comune — nessun aggiustamento a mano
+// icona per icona, che andrebbe rifatto a ogni aggiunta.
+// Unita' del viewBox, che e' 28. Si scala sulla MEDIA GEOMETRICA dei due
+// lati, non sul lato piu' lungo: scalando sul lato lungo, un'icona larga e
+// bassa come il letto resta visivamente meta' di una alta e stretta come
+// l'obelisco, pur "riempiendo" il riquadro. La media geometrica le fa
+// pesare uguale all'occhio. I due limiti dopo impediscono comunque di
+// sbordare, e sono loro a vincere quando l'icona e' molto allungata.
+const PESO_SIMBOLO=15, MAX_LARG=20, MAX_ALT=17;
+function normalizzaSimboli(){
+  for(const g of document.querySelectorAll('svg .ico')){
+    const b=g.getBBox();
+    if(!b.width||!b.height)continue;
+    const k=Math.min(PESO_SIMBOLO/Math.sqrt(b.width*b.height), MAX_LARG/b.width, MAX_ALT/b.height);
+    const cx=b.x+b.width/2, cy=b.y+b.height/2;
+    g.setAttribute('transform',`scale(${k.toFixed(4)}) translate(${(-cx).toFixed(2)} ${(-cy).toFixed(2)})`);
+  }
 }
 
 let html='',totale=0;
@@ -164,6 +193,9 @@ document.getElementById('speciali').innerHTML=speciali.map(s=>`
         `<span><span class="pedina mini" style="background:${MARKER_COLOR['grigio']}">${sagoma(f,11)}</span>J${i+1}</span>`).join('')}</div>`:''}
     </div>
   </div>`).join('');
+
+// dopo che tutto e' nel documento: getBBox() ha bisogno di elementi resi
+normalizzaSimboli();
 
 document.getElementById('conteggio').textContent =
   `${totale} luoghi + acqua, terreno e 5 jolly = ${totale + 15} pedine`;
