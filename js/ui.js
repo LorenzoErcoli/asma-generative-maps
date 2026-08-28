@@ -14,7 +14,8 @@ function renderLegend(){
   let html=`<div class="legend-terrain">
     <div class="legend-terrain-row"><b>Blu</b> — Acqua. Fiume, lago o mare: lo decide da sola la continuità dell'acqua una volta piazzata, qualunque forma.</div>
     <div class="legend-terrain-row"><b>Verde</b> — Terreno. 1 pezzo isolato = giardino, 2 adiacenti = parco cittadino, un agglomerato (3+) = collina dentro la città o montagna se tocca il bordo della scacchiera.</div>
-    <div class="legend-terrain-row"><b>Grigio</b> — Jolly. Le 5 forme sono semplicemente J1..J5: un desiderio libero, scritto da te nel pannello "Personalizza le pedine".</div>
+    <div class="legend-terrain-row"><b>Grigio</b> — Jolly: un desiderio libero, che scrivi tu nel pannello "Personalizza le pedine". La forma dice quale slot &egrave;:
+      <span class="legend-jolly">${JOLLY_MARKER_SHAPES.map((f,i)=>`<span title="pedina grigia a ${SHAPE_NAME[f]}">${pawnChipSvg('grigio',f,18)}J${i+1}</span>`).join('')}</span></div>
   </div>`;
   for(const group of MARKER_LEGEND){
     html+=`<div class="legend-group">
@@ -50,14 +51,23 @@ function buildConsole(){
   const sel=$('catSelect');
   for(const c of CATS){const o=el('option');o.value=c.id;o.textContent='Pedina luogo · '+c.name;sel.appendChild(o)}
   sel.onchange=()=>{tool={type:'place',cat:sel.value};setActive(null);sel.style.outline='2px solid var(--accent)'};
+  // I jolly sono pedine GRIGIE che si distinguono solo per la forma: senza
+  // vederla, "J3" non dice a quale pedina del sacchetto corrisponde. Qui e
+  // nel pannello sotto si disegna la pedina vera, cosi' com'e' in mano.
   const jt=$('jollyTools');
   for(let i=0;i<NJOLLY;i++){
-    const t=el('div','tool',`<span class="swatch" style="background:#5a4a2a"></span>J${i+1}`);
+    const forma=JOLLY_MARKER_SHAPES[i];
+    const t=el('div','tool',`${pawnChipSvg('grigio',forma,18)}J${i+1}`);
+    t.title=`J${i+1} — pedina grigia a ${SHAPE_NAME[forma]}`;
     t.dataset.tool='jolly';t.dataset.j=i;jt.appendChild(t);
   }
   const jl=$('jollyLabels');
   for(let i=0;i<NJOLLY;i++){
-    const row=el('div','jolly-row');row.appendChild(el('span','tag',`J${i+1}`));
+    const forma=JOLLY_MARKER_SHAPES[i];
+    const row=el('div','jolly-row');
+    row.title=`J${i+1} — pedina grigia a ${SHAPE_NAME[forma]}`;
+    row.appendChild(el('span','jolly-chip',pawnChipSvg('grigio',forma,20)));
+    row.appendChild(el('span','tag',`J${i+1}`));
     const inp=el('input');inp.type='text';inp.placeholder='es. musica dal vivo…';
     inp.oninput=()=>{jollyText[i]=inp.value;scheduleGen()};
     row.appendChild(inp);jl.appendChild(row);

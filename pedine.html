@@ -31,7 +31,7 @@ h1{font-size:19pt;font-weight:900;margin:0;letter-spacing:-.3px}
   color:var(--ink-soft);margin:0 0 1px}
 .chiave{font-size:7.6pt;color:var(--ink-soft);text-align:right;line-height:1.5;max-width:62mm}
 
-.gruppo{margin-top:3.4mm;break-inside:avoid}
+.gruppo{margin-top:2.6mm;break-inside:avoid}
 .gruppo-testa{display:flex;align-items:center;gap:6px;margin-bottom:1.6mm}
 .pallino{width:9px;height:9px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.3)}
 .gruppo-nome{font-size:9pt;font-weight:800;letter-spacing:.2px}
@@ -49,13 +49,20 @@ h1{font-size:19pt;font-weight:900;margin:0;letter-spacing:-.3px}
 .nome{font-size:7.8pt;font-weight:700;line-height:1.15}
 .nota{font-size:6.6pt;color:var(--ink-soft);line-height:1.25;font-style:italic}
 
-.speciali{margin-top:3.4mm;border-top:1px solid var(--rule);padding-top:2.4mm;
+.speciali{margin-top:2.8mm;border-top:1px solid var(--rule);padding-top:2.4mm;
   display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm}
 .speciale{display:flex;gap:2.2mm;align-items:flex-start}
-.speciale .pedina{width:10mm;height:10mm}
+/* flex:none o il disco viene schiacciato in un ovale dal testo accanto */
+.speciale .pedina{width:10mm;height:10mm;flex:none}
+.jolly-fila .pedina{flex:none}
 .speciale h3{font-size:8.4pt;margin:0 0 .6mm;font-weight:800}
 .speciale p{font-size:6.9pt;margin:0;color:var(--ink-soft);line-height:1.35}
-footer{margin-top:3.2mm;border-top:2px solid var(--ink);padding-top:1.6mm;
+/* le cinque forme del jolly: qui la forma non e' decorativa, e' l'unica
+   cosa che distingue una pedina grigia dall'altra. */
+.jolly-fila{display:flex;gap:1.5mm;margin-top:.7mm}
+.jolly-fila span{display:flex;align-items:center;gap:.5mm;font-size:6.4pt;font-weight:700;color:var(--ink)}
+.pedina.mini{width:5mm;height:5mm;border-width:.35mm;box-shadow:none}
+footer{margin-top:2.6mm;border-top:2px solid var(--ink);padding-top:1.6mm;
   font-size:6.8pt;color:var(--ink-soft);display:flex;justify-content:space-between;gap:10px}
 
 .stampa{position:fixed;top:16px;right:16px;font-family:inherit;font-size:13px;
@@ -147,12 +154,15 @@ document.getElementById('gruppi').innerHTML=html;
 const speciali=[
   {color:'blu',titolo:'Acqua',testo:'Qualunque forma. Fiume, lago o mare non si sceglie: lo decide la continuità dell’acqua sulla scacchiera. Da bordo a bordo è un fiume.'},
   {color:'verde',titolo:'Terreno',testo:'Qualunque forma. Una sola = giardino, due vicine = parco, tre o più = collina, e montagna se tocca il bordo.'},
-  {color:'grigio',titolo:'Jolly',testo:'Qualunque forma, da J1 a J5. Un desiderio libero: il nome lo scrivi tu nella console.'},
+  {color:'grigio',titolo:'Jolly',testo:'Un desiderio libero: il nome lo scrivi tu nella console. Qui la forma conta, perché dice quale slot è.',jolly:true},
 ];
 document.getElementById('speciali').innerHTML=speciali.map(s=>`
   <div class="speciale">
     <div class="pedina" style="background:${MARKER_COLOR[s.color]}">${sagoma('cerchio',20)}</div>
-    <div><h3>${s.titolo}</h3><p>${s.testo}</p></div>
+    <div><h3>${s.titolo}</h3><p>${s.testo}</p>
+      ${s.jolly?`<div class="jolly-fila">${JOLLY_MARKER_SHAPES.map((f,i)=>
+        `<span><span class="pedina mini" style="background:${MARKER_COLOR['grigio']}">${sagoma(f,11)}</span>J${i+1}</span>`).join('')}</div>`:''}
+    </div>
   </div>`).join('');
 
 document.getElementById('conteggio').textContent =

@@ -32,7 +32,15 @@ body{
 select,input[type=text]{width:100%;background:#1c1712;color:var(--ink);border:1px solid var(--line);
   border-radius:6px;padding:5px 7px;font-family:inherit;font-size:12.5px}
 .jolly-row{display:flex;align-items:center;gap:5px;margin-bottom:4px}
-.jolly-row .tag{width:18px;text-align:center;font-size:11px;color:var(--accent);font-weight:700}
+.jolly-row .tag{width:16px;text-align:center;font-size:11px;color:var(--accent);font-weight:700}
+/* la pedina grigia disegnata accanto a J1..J5: senza la forma, il numero da
+   solo non dice a quale pedina del sacchetto corrisponde. */
+.jolly-chip{flex:none;display:flex;align-items:center}
+.pawn-chip{display:block;flex:none}
+.tool .pawn-chip{margin-right:1px}
+/* le cinque pedine jolly in fila dentro la legenda */
+.legend-jolly{display:inline-flex;flex-wrap:wrap;gap:9px;margin-top:5px}
+.legend-jolly>span{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--muted)}
 .btns{display:flex;flex-direction:column;gap:6px}
 button.act{font-family:inherit;font-size:12.5px;cursor:pointer;padding:8px;border-radius:7px;
   border:1px solid var(--line);background:#3a2f24;color:var(--ink)}

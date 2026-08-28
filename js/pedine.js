@@ -75,6 +75,18 @@ const SHAPE_SVG_PATH={
   croce:'M36 28h28v22h22v28H64v22H36V78H14V50h22z',
   pentagono:'M25 34h50v28L50 82 25 62z',
 };
+// Nome leggibile della forma, per etichette e tooltip.
+const SHAPE_NAME={quadrato:'quadrato',cerchio:'cerchio',triangolo:'triangolo',croce:'croce',pentagono:'pentagono'};
+// La pedina COME SI VEDE SUL TAVOLO: disco del suo colore, sagoma bianca
+// sopra. Serve ovunque si debba dire "questa cosa qui, non un'altra" —
+// nella console, nella legenda, sulla scheda A4 — ed e' l'unico disegno che
+// una persona puo' confrontare a occhio con la pedina che ha in mano.
+function pawnChipSvg(color,shape,size){
+  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" class="pawn-chip">
+    <circle cx="50" cy="50" r="45" fill="${MARKER_COLOR[color]}" stroke="rgba(0,0,0,.55)" stroke-width="7"/>
+    <path d="${SHAPE_SVG_PATH[shape]}" fill="#fff" transform="translate(50 50) scale(.6) translate(-50 -50)"/>
+  </svg>`;
+}
 function shapeSvg(shape,filled){
   const fill=filled?'currentColor':'none', stroke=filled?'none':'currentColor';
   return `<svg viewBox="0 0 100 100" width="24" height="24"><path d="${SHAPE_SVG_PATH[shape]}" fill="${fill}" stroke="${stroke}" stroke-width="5"/></svg>`;
