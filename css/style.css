@@ -55,6 +55,8 @@ dialog#legendModal::backdrop,dialog#helpModal::backdrop{background:rgba(0,0,0,.6
   cursor:pointer;padding:2px 8px;border-radius:6px}
 .legend-close:hover{color:var(--ink);background:rgba(255,255,255,.06)}
 .legend-sub{padding:10px 18px 2px;font-size:11.5px;color:var(--muted);line-height:1.5}
+.legend-link{color:var(--accent);text-decoration:none;white-space:nowrap}
+.legend-link:hover{text-decoration:underline}
 #legendBody{padding:8px 18px 20px;overflow-y:auto;max-height:calc(100vh - 160px)}
 .legend-terrain{border:1px solid var(--line);border-radius:8px;padding:10px 12px;
   margin:8px 0 16px;background:rgba(0,0,0,.15)}
@@ -68,7 +70,6 @@ dialog#legendModal::backdrop,dialog#helpModal::backdrop{background:rgba(0,0,0,.6
 .legend-shapes{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
 .legend-shape{display:flex;align-items:center;gap:9px;border:1px solid var(--line);
   border-radius:7px;padding:7px 9px;background:rgba(255,255,255,.02)}
-.legend-shape.open{border-style:dashed;opacity:.62}
 .legend-shape svg{flex:none}
 .legend-shape-name{font-size:12.5px;font-weight:600}
 .legend-shape-note{font-size:11px;color:var(--muted)}

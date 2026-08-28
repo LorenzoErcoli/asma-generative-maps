@@ -123,7 +123,7 @@
       <div class="help-note">
         <h3>La camera (facoltativa)</h3>
         <p>Serve solo se hai la scacchiera <i>fisica</i> con le pedine colorate: la camera le legge e riempie la griglia al posto tuo. Si avvia a parte, con <code>npm run scanner</code>. Senza, si lavora benissimo a mano.</p>
-        <p>Il pulsante <b>Legenda pedine</b> qui a sinistra mostra quale colore e quale forma corrispondono a quale luogo.</p>
+        <p>Il pulsante <b>Legenda pedine</b> qui a sinistra mostra quale colore e quale forma corrispondono a quale luogo. Da lì si apre anche la <b>scheda A4 da stampare</b> — comoda da tenere sul tavolo accanto alla scacchiera: <a href="pedine.html" target="_blank">aprila subito</a>.</p>
       </div>
 
       <div class="help-note">
@@ -138,11 +138,12 @@
       <h2>Legenda delle pedine</h2>
       <button id="legendClose" class="legend-close" aria-label="Chiudi" title="Chiudi">&times;</button>
     </div>
-    <div class="legend-sub">Un colore è un tema, una forma richiama l'oggetto reale. Le caselle tratteggiate sono posti liberi: categorie non ancora create.</div>
+    <div class="legend-sub">Un colore è un tema, una forma richiama l'oggetto reale. Tutte e quaranta le pedine hanno un luogo dietro: nessuna casella è vuota. <a href="pedine.html" target="_blank" class="legend-link">Scheda A4 da stampare →</a></div>
     <div id="legendBody"></div>
   </dialog>
 
 <script src="js/geometry.js"></script>
+<script src="js/pedine.js"></script>
 <script src="js/naming.js"></script>
 <script src="js/world.js"></script>
 <script src="js/tessuto.js"></script>

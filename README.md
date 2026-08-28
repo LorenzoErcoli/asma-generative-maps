@@ -84,6 +84,26 @@ python3 tools/render-fronte.py
 
 ---
 
+## Il codice delle pedine
+
+Un **colore** è un tema, una **forma** richiama l'oggetto: viola sacro,
+arancione il palazzo, giallo i mercanti, magenta le arti, rosso il popolo.
+Cinque forme per colore, **venticinque luoghi, nessuna casella vuota**. Gli
+altri tre colori non sono luoghi e accettano qualunque forma: blu è acqua,
+verde è terreno, grigio è jolly.
+
+C'è una **scheda A4 da stampare** che li mette tutti in fila, con accanto il
+simbolo con cui ogni luogo comparirà sulla carta — comoda sul tavolo accanto
+alla scacchiera:
+
+**http://localhost:8123/pedine.html** — oppure dal link nella «Legenda pedine»
+
+La scheda si costruisce dalle stesse tabelle della legenda a schermo
+(`js/pedine.js`) e dalle stesse icone della carta: se cambia un abbinamento,
+cambia in tutti e tre i posti insieme.
+
+---
+
 ## Stampare
 
 Il pulsante **Stampa** produce esattamente **due pagine A3 orizzontali**:
@@ -207,8 +227,11 @@ retta invece che instradate lungo le strade). Se il comando finisce con
 
 ```
 index.html          la console e la scacchiera
+pedine.html         la scheda A4 del codice delle pedine, da stampare
 js/                 il generatore, caricato come script classici in quest'ordine:
   geometry.js         primitive geometriche, rumore, PRNG con seme
+  pedine.js           il codice colore/forma delle pedine (sorgente unica:
+                      legenda a schermo, scheda A4 e scanner leggono qui)
   naming.js           i nomi dei luoghi e delle strade
   world.js            campagna, campo urbano e dell'acqua, quartieri
   tessuto.js          il motore vero: strade, isolati, edifici, ponti (il file grosso)

@@ -202,7 +202,7 @@ async function callVision(mode,image,tokens=[],calibration=[]){
 // GET /.env.local rispondeva 200 con la chiave in chiaro.
 // Vale la stessa regola di serve.js: si elenca cosa si serve, uno per uno.
 const ALLOW_ROOTS=['css','js','assets','vendor'];
-const ALLOW_FILES=['/index.html','/scanner.html','/ipad-board.html','/icon-lab.html'];
+const ALLOW_FILES=['/index.html','/scanner.html','/ipad-board.html','/icon-lab.html','/pedine.html'];
 // unica eccezione dentro certs/: la CA e' pubblica per definizione ed e' il
 // file che l'iPad deve poter scaricare. La chiave privata e la password che
 // le stanno accanto restano fuori.

@@ -448,8 +448,29 @@ const ICON={
  mug:'<path d="M-5 -5 h8 v11 h-8 Z M3 -3 h4 v6 h-4"/>',
  hammer:'<path d="M-6 -6 h8 v4 h-8 Z"/><path d="M-2 -2 L4 8"/>',
  note:'<circle cx="-3" cy="7" r="3"/><path d="M0 7 v-13 l7 2 v3"/>',
+ // --- le sei categorie aggiunte quando i posti liberi sono stati riempiti.
+ // Stessa convenzione delle altre: solo tratto, dentro un riquadro di
+ // circa 18x18 centrato sull'origine, niente riempimenti.
+ scales:'<path d="M0 -9 v15 M-7 8 h14"/><path d="M-7 -6 h14"/><path d="M-7 -6 l-3 5 h6 Z"/><path d="M7 -6 l-3 5 h6 Z"/>',
+ shield:'<path d="M0 -9 l7 3 v5 q0 6 -7 10 q-7 -4 -7 -10 v-5 Z"/>',
+ lighthouse:'<path d="M-4 8 L-2 -3 h4 L4 8 Z"/><path d="M-3 -3 h6 v-4 h-6 Z"/><path d="M-6 8 h12"/><path d="M-8 -9 l3 2 M8 -9 l-3 2"/>',
+ barrier:'<path d="M-8 8 v-9 M8 8 v-9"/><path d="M-9 -1 h18 v4 h-18 Z"/><path d="M-3 -1 v4 M3 -1 v4"/>',
+ mortar:'<path d="M-6 -1 h12 q0 8 -6 8 q-6 0 -6 -8 Z"/><path d="M-8 -1 h16"/><path d="M4 -9 L0 -2"/>',
+ bed:'<path d="M-8 7 v-11"/><path d="M8 7 v-6"/><path d="M-8 1 h16 v3 h-16"/><path d="M-5 1 v-3 h4 v3"/>',
+ // il cinema dichiarava l'icona 'projector' che qui non esisteva: sulla
+ // carta finiva la stringa "undefined" dentro l'SVG, al posto del simbolo.
+ // Nessuno scenario di test usava un cinema, percio' non l'aveva mai vista
+ // nessuno — ora c'e' un controllo apposta in generator-smoke.cjs.
+ projector:'<path d="M-9 2 h13 v-7 h-13 Z"/><circle cx="-2.5" cy="-1.5" r="2.6"/><path d="M4 -2 L9 -5 v7 L4 -1"/><path d="M-7 2 v3 M2 2 v3"/>',
  star:'<path d="M0 -9 L2.6 -2.8 L9 -2.8 L3.8 1.4 L5.9 8 L0 3.9 L-5.9 8 L-3.8 1.4 L-9 -2.8 L-2.6 -2.8 Z"/>',
 };
+// Un'icona che non esiste nella tabella finirebbe nell'SVG come la stringa
+// "undefined": meglio la stella del jolly, che almeno e' un simbolo. Il
+// caso non deve comunque accadere — lo sorveglia generator-smoke.cjs.
+function iconFor(p){
+  if(p.jolly)return ICON.star;
+  return ICON[CAT[p.cat] && CAT[p.cat].icon] || ICON.star;
+}
 function landmarksLayer(places,P){
   let s='';
   for(const p of places){
@@ -464,7 +485,7 @@ function landmarksLayer(places,P){
       <rect x="${F1(-w/2)}" y="${F1(-h/2)}" width="${F1(w)}" height="${F1(h)}" rx="1.5" fill="${P.red}" stroke="${P.redDk}" stroke-width="1.1"/>
       <rect x="${F1(-w/2+2.5)}" y="${F1(-h/2+2.5)}" width="${F1(w-5)}" height="${F1(h-5)}" fill="none" stroke="${P.paper}" stroke-width=".7" opacity=".5"/>
      </g>`;
-    s+=`<g transform="translate(${F1(ax)},${F1(ay)}) scale(.58)" stroke="${P.paper}" fill="none" stroke-width="2">${p.jolly?ICON.star:ICON[CAT[p.cat].icon]}</g>`;
+    s+=`<g transform="translate(${F1(ax)},${F1(ay)}) scale(.58)" stroke="${P.paper}" fill="none" stroke-width="2">${iconFor(p)}</g>`;
     s+=`<circle cx="${F1(ax+12)}" cy="${F1(ay-11)}" r="8" fill="${P.paper}" stroke="${P.redDk}" stroke-width="1.3"/>`;
     s+=`<text x="${F1(ax+12)}" y="${F1(ay-8)}" font-size="10" text-anchor="middle" fill="${P.redDk}" font-weight="700">${p.ord}</text>`;
   }

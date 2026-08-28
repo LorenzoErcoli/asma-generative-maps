@@ -122,7 +122,7 @@ function loadGenerator() {
     };
     ;globalThis.generatorTestApi = {
       classWater, riverAxis, empty, generate, demo,
-      MARE_ENABLED,
+      MARE_ENABLED, CATS, ICON, MARKER_LEGEND, MARKER_TO_PLACE, nameFor,
       tessuto() { return globalThis.__lastTessuto; },
       setGrid(value) { grid = value; order = 0; },
       svg() { return lastSVG; },

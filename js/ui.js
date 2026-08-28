@@ -9,73 +9,6 @@ let grid=empty(), order=0, tool={type:'place',cat:'chiesa'}, jollyText=Array(NJO
 function empty(){return Array.from({length:N},()=>Array(N).fill(null))}
 let lastSVG='',mapDirty=false,lastDiagnostics=null,lastMapNum=0;
 const EXTERNAL_GRID_CHANNEL='asma-grid-v1';
-const MARKER_COLOR={rosso:'#ff0d19',arancione:'#ff6600',giallo:'#ffe600',verde:'#19a64a',grigio:'#7d8f98',blu:'#0040ff',viola:'#7549c7',magenta:'#d940a9'};
-const MARKER_SHAPES=['quadrato','cerchio','triangolo','croce','pentagono'];
-// il "Codice delle Pedine": un colore = un tema, una forma = un richiamo
-// all'oggetto reale. Fonte unica sia per l'associazione automatica dei
-// marker (MARKER_TO_PLACE, derivata sotto) sia per la legenda a schermo
-// (renderLegend) — un solo posto da aggiornare se cambia un abbinamento.
-// Le forme senza un vero luogo dietro (es. arancione-croce = "Tribunale",
-// non ancora una categoria) restano segnate come 'open': in legenda si
-// leggono come posto libero, e uno scanner che le vede produce ancora un
-// marker "da associare", non un errore.
-const MARKER_LEGEND=[
-  {color:'viola',theme:'Sacro',entries:[
-    {shape:'croce',cat:'chiesa',note:'la croce sul campanile'},
-    {shape:'quadrato',cat:'cimitero',note:'il recinto murato'},
-    {shape:'triangolo',cat:'monumento',note:"il profilo di un obelisco"},
-    {shape:'cerchio',cat:'chiesa',sub:'Santuario',note:'la rotonda sacra'},
-    {shape:'pentagono',cat:'chiesa',sub:'Convento',note:'la dimora silenziosa'},
-  ]},
-  {color:'arancione',theme:'del Palazzo',entries:[
-    {shape:'quadrato',cat:'piazza',note:'lo spiazzo cittadino'},
-    {shape:'pentagono',cat:'municipio',note:'la casa della città'},
-    {shape:'cerchio',cat:'torre',note:"torre rotonda, l'orologio civico"},
-    {shape:'triangolo',open:'Guarnigione — la vedetta'},
-    {shape:'croce',open:'Tribunale — il crocevia della giustizia'},
-  ]},
-  {color:'giallo',theme:'dei Mercanti',entries:[
-    {shape:'quadrato',cat:'mercato',note:'i banchi a scacchiera'},
-    {shape:'croce',cat:'stazione',note:'il passaggio a livello'},
-    {shape:'triangolo',cat:'porto',note:'la vela di una barca'},
-    {shape:'cerchio',open:'Faro — il fascio di luce'},
-    {shape:'pentagono',open:'Dogana — il casello di confine'},
-  ]},
-  {color:'magenta',theme:'delle Arti',entries:[
-    {shape:'quadrato',cat:'biblioteca',note:'un libro aperto'},
-    {shape:'triangolo',cat:'cinema',note:'la luce del proiettore'},
-    {shape:'pentagono',cat:'teatro',note:'il sipario è la sua porta'},
-    {shape:'cerchio',cat:'fontana',note:'la vasca rotonda'},
-    {shape:'croce',cat:'giardino',note:'un fiore a quattro petali'},
-  ]},
-  {color:'rosso',theme:'del Popolo',entries:[
-    {shape:'quadrato',cat:'bottega',note:'la vetrina del negozio'},
-    {shape:'cerchio',cat:'osteria',note:"il boccale visto dall'alto"},
-    {shape:'triangolo',cat:'locale',note:'il calice da cocktail'},
-    {shape:'croce',open:'Farmacia — la croce verde'},
-    {shape:'pentagono',open:'Locanda — l\'ultima stanza libera'},
-  ]},
-];
-const MARKER_TO_PLACE={};
-for(const group of MARKER_LEGEND)for(const e of group.entries)
-  if(e.cat)MARKER_TO_PLACE[`${group.color}-${e.shape}`]={cat:e.cat,sub:e.sub};
-// grigio è il jolly: le 5 forme diventano semplicemente J1..J5, senza un
-// significato fisso — è il giocatore a scriverne uno nel pannello.
-const JOLLY_MARKER_SHAPES=MARKER_SHAPES;
-// stesse sagome usate dallo scanner per riconoscere le pedine (scanner.html,
-// MARKER_SHAPES): riusarle qui vuol dire che la legenda mostra esattamente
-// la forma che la camera cerca davvero, non un'icona diversa reinventata.
-const SHAPE_SVG_PATH={
-  quadrato:'M28 28h44v44H28z',
-  cerchio:'M50 25a25 25 0 1 0 0 50 25 25 0 1 0 0-50z',
-  triangolo:'M50 24 78 72H22z',
-  croce:'M36 28h28v22h22v28H64v22H36V78H14V50h22z',
-  pentagono:'M25 34h50v28L50 82 25 62z',
-};
-function shapeSvg(shape,filled){
-  const fill=filled?'currentColor':'none', stroke=filled?'none':'currentColor';
-  return `<svg viewBox="0 0 100 100" width="24" height="24"><path d="${SHAPE_SVG_PATH[shape]}" fill="${fill}" stroke="${stroke}" stroke-width="5"/></svg>`;
-}
 function renderLegend(){
   const host=$('legendBody');if(!host)return;
   let html=`<div class="legend-terrain">
@@ -87,12 +20,14 @@ function renderLegend(){
     html+=`<div class="legend-group">
       <div class="legend-group-head"><span class="legend-dot" style="background:${MARKER_COLOR[group.color]}"></span><b>${cap(group.color)}</b> — ${group.theme}</div>
       <div class="legend-shapes" style="color:${MARKER_COLOR[group.color]}">`;
+    // Ogni forma di ogni colore ha ora un luogo dietro: non esistono piu'
+    // caselle vuote. Il ramo 'open' e' stato tolto insieme a loro; se un
+    // giorno se ne aggiungesse una senza categoria si vedrebbe subito,
+    // perche' resterebbe senza nome.
     for(const e of group.entries){
-      const filled=!!e.cat;
-      const name=filled?(CAT[e.cat]?CAT[e.cat].name:e.cat)+(e.sub?' · '+e.sub:''):e.open.split(' — ')[0];
-      const note=filled?e.note:e.open.split(' — ')[1];
-      html+=`<div class="legend-shape ${filled?'':'open'}">${shapeSvg(e.shape,filled)}
-        <div><div class="legend-shape-name">${name}</div><div class="legend-shape-note">${note}</div></div></div>`;
+      const name=(CAT[e.cat]?CAT[e.cat].name:e.cat)+(e.sub?' · '+e.sub:'');
+      html+=`<div class="legend-shape">${shapeSvg(e.shape,true)}
+        <div><div class="legend-shape-name">${name}</div><div class="legend-shape-note">${e.note}</div></div></div>`;
     }
     html+='</div></div>';
   }

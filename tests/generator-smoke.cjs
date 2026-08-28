@@ -5,6 +5,33 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
+// --- INVARIANTE: il codice delle pedine e' completo e coerente ---
+// Una pedina esiste su tre tavoli diversi — la tassonomia (CATS), le icone
+// della carta (ICON) e il codice colore/forma (MARKER_LEGEND) — e devono
+// dire tutti la stessa cosa. Quando non la dicevano, il cinema dichiarava
+// l'icona 'projector' che non esisteva e sulla carta finiva la stringa
+// "undefined" al posto del simbolo: nessuno scenario usava un cinema,
+// quindi non se n'era accorto nessuno per mesi.
+for (const cat of api.CATS) {
+  assert(api.ICON[cat.icon], `categoria '${cat.id}': icona '${cat.icon}' assente dalla tabella ICON`);
+  assert(api.nameFor(cat.id) && api.nameFor(cat.id).trim(), `categoria '${cat.id}': nessun nome generato`);
+}
+// Nessuna casella del codice pedine puo' restare vuota: ogni forma di ogni
+// colore deve puntare a una categoria che esiste davvero.
+for (const gruppo of api.MARKER_LEGEND) {
+  for (const e of gruppo.entries) {
+    assert(e.cat, `${gruppo.color}-${e.shape}: casella senza categoria`);
+    assert(api.CATS.some(c => c.id === e.cat), `${gruppo.color}-${e.shape}: categoria '${e.cat}' inesistente`);
+    assert(e.note && e.note.trim(), `${gruppo.color}-${e.shape}: manca la nota di legenda`);
+  }
+  assert(gruppo.entries.length === 5, `${gruppo.color}: ${gruppo.entries.length} forme invece di 5`);
+}
+{
+  const attese = 5 * 5;
+  const definite = Object.keys(api.MARKER_TO_PLACE).length;
+  assert(definite === attese, `codice pedine: ${definite} combinazioni definite invece di ${attese}`);
+}
+
 // Un fiume e' tale solo se attraversa la scacchiera da bordo a bordo: e'
 // la regola su cui si appoggia tutta la generazione a valle (le due sponde,
 // i ponti, il taglio del tessuto). Una macchia che tocca UN solo bordo non

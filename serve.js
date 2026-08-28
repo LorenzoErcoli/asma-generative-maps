@@ -28,7 +28,7 @@ const AI_PORT = process.env.AI_PORT ? Number(process.env.AI_PORT) : readAiPort()
 // dietro vendor/opencv.js: senza questi due la console si apre lo stesso ma la
 // parte camera resta un 404. Restano elencati uno per uno, non aperti per
 // estensione: qui accanto vivono anche certificati, chiavi e il server AI.
-const ALLOW_FILES = ['/index.html', '/scanner.html'];
+const ALLOW_FILES = ['/index.html', '/scanner.html', '/pedine.html'];
 function isAllowed(relPath){
   if (relPath === '/') return true;
   if (ALLOW_FILES.includes(relPath)) return true;

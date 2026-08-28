@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Il codice delle pedine — scheda A4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+<style>
+/* Scheda da banco, pensata per la stampa su A4 verticale e per stare in
+   UNA pagina sola. A schermo si vede il foglio su un fondo scuro, come
+   un'anteprima di stampa; in stampa resta solo il foglio.
+   I colori sono quelli della carta (bianco/inchiostro), non quelli della
+   console: e' un oggetto che vive accanto alla scacchiera, non dentro
+   l'applicazione. */
+:root{
+  --ink:#211c17; --ink-soft:#6b6259; --rule:#c9c0b5; --paper:#fff;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#3a332b;font-family:"Archivo",system-ui,sans-serif;color:var(--ink);padding:24px}
+.foglio{
+  width:210mm;min-height:297mm;margin:0 auto;background:var(--paper);
+  padding:13mm 12mm 10mm;box-shadow:0 10px 50px rgba(0,0,0,.5);
+}
+header{border-bottom:2px solid var(--ink);padding-bottom:5px;margin-bottom:3mm;
+  display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+h1{font-size:19pt;font-weight:900;margin:0;letter-spacing:-.3px}
+.occhiello{font-size:7.5pt;text-transform:uppercase;letter-spacing:2.2px;
+  color:var(--ink-soft);margin:0 0 1px}
+.chiave{font-size:7.6pt;color:var(--ink-soft);text-align:right;line-height:1.5;max-width:62mm}
+
+.gruppo{margin-top:3.4mm;break-inside:avoid}
+.gruppo-testa{display:flex;align-items:center;gap:6px;margin-bottom:1.6mm}
+.pallino{width:9px;height:9px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.3)}
+.gruppo-nome{font-size:9pt;font-weight:800;letter-spacing:.2px}
+.gruppo-tema{font-size:8pt;color:var(--ink-soft);font-style:italic}
+.righe{display:grid;grid-template-columns:repeat(5,1fr);gap:2mm}
+.carta{border:1px solid var(--rule);border-radius:2mm;padding:1.8mm 1.4mm;
+  display:flex;flex-direction:column;align-items:center;text-align:center;gap:1mm}
+/* la pedina come si vede sul tavolo: disco colorato, sagoma bianca sopra */
+.pedina{width:12mm;height:12mm;border-radius:50%;display:grid;place-items:center;
+  border:.6mm solid rgba(0,0,0,.55);box-shadow:inset 0 -1mm 1.6mm rgba(0,0,0,.28)}
+.pedina svg{display:block}
+.freccia{font-size:7pt;color:var(--ink-soft);line-height:1;margin:-.2mm 0}
+/* e il simbolo con cui lo stesso luogo comparira' sulla carta stampata */
+.simbolo{height:9mm;display:grid;place-items:center}
+.nome{font-size:7.8pt;font-weight:700;line-height:1.15}
+.nota{font-size:6.6pt;color:var(--ink-soft);line-height:1.25;font-style:italic}
+
+.speciali{margin-top:3.4mm;border-top:1px solid var(--rule);padding-top:2.4mm;
+  display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm}
+.speciale{display:flex;gap:2.2mm;align-items:flex-start}
+.speciale .pedina{width:10mm;height:10mm}
+.speciale h3{font-size:8.4pt;margin:0 0 .6mm;font-weight:800}
+.speciale p{font-size:6.9pt;margin:0;color:var(--ink-soft);line-height:1.35}
+footer{margin-top:3.2mm;border-top:2px solid var(--ink);padding-top:1.6mm;
+  font-size:6.8pt;color:var(--ink-soft);display:flex;justify-content:space-between;gap:10px}
+
+.stampa{position:fixed;top:16px;right:16px;font-family:inherit;font-size:13px;
+  padding:9px 16px;border-radius:7px;border:0;background:#c98a4b;color:#231a10;
+  font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+
+@media print{
+  @page{size:A4 portrait;margin:0}
+  body{background:#fff;padding:0}
+  .foglio{width:auto;min-height:0;margin:0;box-shadow:none;padding:11mm 11mm 8mm}
+  .stampa{display:none}
+}
+</style>
+</head>
+<body>
+<button class="stampa" onclick="window.print()">Stampa questa scheda</button>
+
+<div class="foglio">
+  <header>
+    <div>
+      <p class="occhiello">ASMA · Agenzia di Viaggio Immaginaria</p>
+      <h1>Il codice delle pedine</h1>
+    </div>
+    <div class="chiave">
+      Un <b>colore</b> è un tema, una <b>forma</b> richiama l'oggetto.<br>
+      Sotto ogni pedina, il simbolo con cui quel luogo comparirà sulla carta stampata.
+    </div>
+  </header>
+
+  <div id="gruppi"></div>
+  <div class="speciali" id="speciali"></div>
+
+  <footer>
+    <span>Scacchiera 8×8 · le pedine sono lo scheletro, la città cresce intorno</span>
+    <span id="conteggio"></span>
+  </footer>
+</div>
+
+<script src="js/geometry.js"></script>
+<script src="js/world.js"></script>
+<script src="js/render.js"></script>
+<script src="js/pedine.js"></script>
+<script>
+/* La scheda si costruisce dalle STESSE tabelle della legenda a schermo
+   (js/pedine.js) e dalle stesse icone della carta (ICON in js/render.js):
+   se domani un abbinamento cambia, cambia qui da solo. Nessun elenco
+   ricopiato a mano, che e' l'unico modo perche' foglio e programma non
+   raccontino due storie diverse. */
+
+// la sagoma bianca stampata sulla pedina fisica
+function sagoma(shape,size){
+  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}">
+    <path d="${SHAPE_SVG_PATH[shape]}" fill="#fff"/></svg>`;
+}
+// il simbolo con cui il luogo viene disegnato sulla carta
+function simboloCarta(cat){
+  const nome=CAT[cat]&&CAT[cat].icon;
+  if(!nome||!ICON[nome])return '';
+  return `<svg viewBox="-14 -14 28 28" width="30" height="30">
+    <g stroke="#211c17" fill="none" stroke-width="1.7"
+       stroke-linecap="round" stroke-linejoin="round">${ICON[nome]}</g></svg>`;
+}
+
+let html='',totale=0;
+for(const gruppo of MARKER_LEGEND){
+  html+=`<div class="gruppo">
+    <div class="gruppo-testa">
+      <span class="pallino" style="background:${MARKER_COLOR[gruppo.color]}"></span>
+      <span class="gruppo-nome">${gruppo.color[0].toUpperCase()+gruppo.color.slice(1)}</span>
+      <span class="gruppo-tema">— ${gruppo.theme}</span>
+    </div><div class="righe">`;
+  for(const e of gruppo.entries){
+    const nome=(CAT[e.cat]?CAT[e.cat].name:e.cat)+(e.sub?' · '+e.sub:'');
+    totale++;
+    html+=`<div class="carta">
+      <div class="pedina" style="background:${MARKER_COLOR[gruppo.color]}">${sagoma(e.shape,26)}</div>
+      <div class="freccia">▼</div>
+      <div class="simbolo">${simboloCarta(e.cat)}</div>
+      <div class="nome">${nome}</div>
+      <div class="nota">${e.note}</div>
+    </div>`;
+  }
+  html+='</div></div>';
+}
+document.getElementById('gruppi').innerHTML=html;
+
+// I tre colori che non sono luoghi: qualunque forma va bene, ed e' proprio
+// questo il punto da spiegare su un foglio da tavolo.
+const speciali=[
+  {color:'blu',titolo:'Acqua',testo:'Qualunque forma. Fiume, lago o mare non si sceglie: lo decide la continuità dell’acqua sulla scacchiera. Da bordo a bordo è un fiume.'},
+  {color:'verde',titolo:'Terreno',testo:'Qualunque forma. Una sola = giardino, due vicine = parco, tre o più = collina, e montagna se tocca il bordo.'},
+  {color:'grigio',titolo:'Jolly',testo:'Qualunque forma, da J1 a J5. Un desiderio libero: il nome lo scrivi tu nella console.'},
+];
+document.getElementById('speciali').innerHTML=speciali.map(s=>`
+  <div class="speciale">
+    <div class="pedina" style="background:${MARKER_COLOR[s.color]}">${sagoma('cerchio',20)}</div>
+    <div><h3>${s.titolo}</h3><p>${s.testo}</p></div>
+  </div>`).join('');
+
+document.getElementById('conteggio').textContent =
+  `${totale} luoghi + acqua, terreno e 5 jolly = ${totale + 15} pedine`;
+</script>
+</body>
+</html>

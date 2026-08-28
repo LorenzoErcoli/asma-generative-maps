@@ -53,7 +53,8 @@ const LANDMARK_FILL={
   municipio:'#8a5410',stazione:'#9c5f0e',porto:'#af6a10',mercato:'#c17512',torre:'#d1841c',
   ospedale:'#dc9530',fontana:'#e6a748',osteria:'#eeb968',bottega:'#f4c988',locale:'#f8d7a8',
 };
-const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',teatro:'apse',stazione:'shed',fontana:'basin',ospedale:'courtyard'};
+const IMPORTANT_SHAPE={chiesa:'cross',municipio:'courtyard',mercato:'courtyard',teatro:'apse',stazione:'shed',fontana:'basin',ospedale:'courtyard',
+  tribunale:'courtyard',dogana:'shed',locanda:'courtyard'};
 
 /* ---------------- forme organiche (piazze/giardini/verde) ----------------
    rifinitura cosmetica per i due soli casi in cui non si puo' ritagliare un
@@ -1155,7 +1156,7 @@ function buildTessuto(cityPoly, river, places, railStations, hills, sea){
   // chiesa poteva finire su un lotto minuscolo solo perche' era il primo
   // a portata, mentre un lotto ben piu' grande stava a pochi passi in piu'.
   const claimed=new Set();
-  const BIG_LANDMARK=new Set(['chiesa','municipio','mercato','teatro','stazione','cinema']);
+  const BIG_LANDMARK=new Set(['chiesa','municipio','mercato','teatro','stazione','cinema','tribunale']);
   for(const lp of landmarkPawns){
     const prefersBig=BIG_LANDMARK.has(lp.cat);
     const searchR=prefersBig?CELL*1.9:CELL*1.4;

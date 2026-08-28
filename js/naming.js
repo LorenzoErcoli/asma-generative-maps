@@ -35,7 +35,9 @@ function nameFor(cat,sub){
   return ({chiesa:'Chiesa di '+n,cimitero:'Cimitero di '+n,monumento:'Monumento a '+n,municipio:'Palazzo '+n,
    piazza:'Piazza '+n,torre:'Torre '+n,mercato:'Mercato di '+n,stazione:'Stazione '+n,porto:'Porto '+n,
    biblioteca:'Biblioteca '+n,teatro:'Teatro '+n,cinema:'Cinema '+n,giardino:'Giardino '+n,
-   fontana:'Fontana di '+n,osteria:'Osteria '+n,bottega:'Bottega '+n,locale:'Locale '+n,collina:'Collina di '+n})[cat]||n;
+   fontana:'Fontana di '+n,osteria:'Osteria '+n,bottega:'Bottega '+n,locale:'Locale '+n,collina:'Collina di '+n,
+   tribunale:'Tribunale di '+n,guarnigione:'Guarnigione '+n,faro:'Faro di '+n,
+   dogana:'Dogana di '+n,farmacia:'Farmacia '+n,locanda:'Locanda '+n})[cat]||n;
 }
 const MICRO={
  classico:{chiesa:'raccoglimento tra navate antiche',piazza:'cuore civile della città',mercato:'voci e banchi al mattino',

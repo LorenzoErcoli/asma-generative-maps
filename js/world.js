@@ -36,9 +36,15 @@ const CATS=[
  {id:'municipio',name:'Municipio',group:'civico',icon:'townhall',civic:2},
  {id:'piazza',name:'Piazza',group:'civico',icon:'square',civic:2},
  {id:'torre',name:'Torre',group:'civico',icon:'tower'},
+ {id:'tribunale',name:'Tribunale',group:'civico',icon:'scales',civic:1.5},
+ {id:'guarnigione',name:'Guarnigione',group:'civico',icon:'shield'},
  {id:'mercato',name:'Mercato',group:'scambio',icon:'market',civic:1.5},
  {id:'stazione',name:'Stazione',group:'scambio',icon:'station'},
  {id:'porto',name:'Porto',group:'scambio',icon:'anchor',needsWater:true},
+ // il faro sta sull'acqua come il porto: senza, la pedina non ha senso e
+ // viene scartata (stesso trattamento, vedi needsWater in main.js).
+ {id:'faro',name:'Faro',group:'scambio',icon:'lighthouse',needsWater:true},
+ {id:'dogana',name:'Dogana',group:'scambio',icon:'barrier'},
  {id:'biblioteca',name:'Biblioteca',group:'cultura',icon:'book'},
  {id:'teatro',name:'Teatro',group:'cultura',icon:'theatre'},
  {id:'cinema',name:'Cinema',group:'cultura',icon:'projector'},
@@ -46,6 +52,8 @@ const CATS=[
  {id:'fontana',name:'Fontana',group:'verde',icon:'fountain'},
  {id:'osteria',name:'Osteria',group:'quotid',icon:'mug'},
  {id:'bottega',name:'Bottega',group:'quotid',icon:'hammer'},
+ {id:'farmacia',name:'Farmacia',group:'quotid',icon:'mortar'},
+ {id:'locanda',name:'Locanda',group:'quotid',icon:'bed'},
  {id:'locale',name:'Locale',group:'notte',icon:'note'},
 ];
 const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
