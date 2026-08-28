@@ -69,6 +69,7 @@ non conosce ancora il comando.
 | `npm run diagnosi` | Dice perché la rilettura AI non parte: quale file dà la chiave, quali server rispondono |
 | `npm test` | Verifica che il generatore funzioni su questa macchina |
 | `npm run audit` | Controllo completo su 24 scacchiere, con galleria HTML dei risultati |
+| `npm run mare` | I 24 scenari di costa, isola e delta, con le carte accanto alle scacchiere |
 | `npm run setup-https` | Certificato locale, solo per usare la camera da un iPad |
 | `npm run fronte` | Rigenera l'immagine della copertina dal PDF — serve solo se cambi la copertina |
 | `npm run pedine-pdf` | Rigenera `assets/pedine-A4.pdf` dalla scheda delle pedine |
@@ -77,12 +78,17 @@ Tutto gira **in locale**. Niente va su internet, tranne — se e solo se
 configuri una chiave — la rilettura AI dello scanner.
 
 L'immagine della copertina è **già nel repository**: `npm run fronte` serve
-solo se sostituisci `assets/fronte.pdf`. Richiede Python con PyMuPDF
-(`pip install pymupdf`), e su macOS il comando di solito è `python3`:
+solo se sostituisci `assets/fronte.pdf`. È l'unico comando che ha bisogno di
+qualcosa oltre a Node — serve Python 3 con PyMuPDF, perché in Node non c'è
+modo di rasterizzare un PDF senza dipendenze:
 
 ```bash
-python3 tools/render-fronte.py
+python3 -m pip install pymupdf
+npm run fronte              # oppure: npm run fronte -- --dpi 200
 ```
+
+L'interprete lo trova da solo (`python3`, `py -3`, `python`), quindi il
+comando è lo stesso su Windows e su macOS.
 
 ---
 

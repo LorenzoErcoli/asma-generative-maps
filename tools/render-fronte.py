@@ -14,10 +14,13 @@ Il PDF resta la sorgente di verita' in assets/: quando cambia, si rilancia
 questo script e si ricommitta il JPEG accanto.
 
 USO
-    python tools/render-fronte.py            # 300 dpi, qualita' 94
-    python tools/render-fronte.py --dpi 200  # piu' leggero
+    npm run fronte                     # 300 dpi, qualita' 94
+    npm run fronte -- --dpi 200        # piu' leggero
 
-Serve PyMuPDF (import fitz). Se manca:  pip install pymupdf
+Si lancia tramite npm, non a mano: tools/fronte.mjs trova l'interprete
+giusto (su macOS `python` non esiste, c'e' solo `python3`).
+
+Serve PyMuPDF (import fitz). Se manca:  python3 -m pip install pymupdf
 """
 import argparse
 import os
@@ -39,8 +42,7 @@ def main():
     try:
         import fitz
     except ImportError:
-        sys.exit("serve PyMuPDF:  pip install pymupdf")
-    from PIL import Image
+        sys.exit("serve PyMuPDF:  python3 -m pip install pymupdf")
 
     if not os.path.exists(SRC):
         sys.exit(f"manca {SRC}")
@@ -49,8 +51,20 @@ def main():
     page = doc[0]
     mm = (round(page.rect.width / 72 * 25.4, 1), round(page.rect.height / 72 * 25.4, 1))
     pix = page.get_pixmap(dpi=args.dpi)
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-    img.save(DST, "JPEG", quality=args.quality, optimize=True, progressive=True)
+    # Pillow, quando c'e', comprime meglio (optimize + progressive: ~10% in
+    # meno a parita' di qualita', e il fronte e' un file da tre megabyte che
+    # sta nel repo). Ma non e' obbligatoria: senza, il JPEG lo scrive
+    # direttamente PyMuPDF, cosi' la libreria da installare resta una sola.
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
+    if Image is not None:
+        Image.frombytes("RGB", [pix.width, pix.height], pix.samples).save(
+            DST, "JPEG", quality=args.quality, optimize=True, progressive=True)
+    else:
+        with open(DST, 'wb') as f:
+            f.write(pix.tobytes("jpg", jpg_quality=args.quality))
 
     print(f"{os.path.relpath(SRC, ROOT)}  pagina 1  {mm[0]}x{mm[1]} mm")
     print(f"-> {os.path.relpath(DST, ROOT)}  {pix.width}x{pix.height} px @ {args.dpi} dpi  "
