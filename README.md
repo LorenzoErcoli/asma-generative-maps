@@ -70,6 +70,7 @@ non conosce ancora il comando.
 | `npm run audit` | Controllo completo su 24 scacchiere, con galleria HTML dei risultati |
 | `npm run setup-https` | Certificato locale, solo per usare la camera da un iPad |
 | `npm run fronte` | Rigenera l'immagine della copertina dal PDF — serve solo se cambi la copertina |
+| `npm run pedine-pdf` | Rigenera `assets/pedine-A4.pdf` dalla scheda delle pedine |
 
 Tutto gira **in locale**. Niente va su internet, tranne — se e solo se
 configuri una chiave — la rilettura AI dello scanner.
@@ -96,11 +97,19 @@ C'è una **scheda A4 da stampare** che li mette tutti in fila, con accanto il
 simbolo con cui ogni luogo comparirà sulla carta — comoda sul tavolo accanto
 alla scacchiera:
 
-**http://localhost:8123/pedine.html** — oppure dal link nella «Legenda pedine»
+- **da stampare subito:** `assets/pedine-A4.pdf` — aprilo e stampalo, senza
+  accendere niente
+- **dal programma:** http://localhost:8123/pedine.html, o il link nella
+  «Legenda pedine»
 
-La scheda si costruisce dalle stesse tabelle della legenda a schermo
+La pagina si costruisce dalle stesse tabelle della legenda a schermo
 (`js/pedine.js`) e dalle stesse icone della carta: se cambia un abbinamento,
-cambia in tutti e tre i posti insieme.
+cambia in tutti e tre i posti insieme. Il PDF invece è un prodotto, e va
+rifatto quando cambia qualcosa:
+
+```bash
+npm run pedine-pdf
+```
 
 ---
 
@@ -228,6 +237,7 @@ retta invece che instradate lungo le strade). Se il comando finisce con
 ```
 index.html          la console e la scacchiera
 pedine.html         la scheda A4 del codice delle pedine, da stampare
+assets/pedine-A4.pdf  la stessa scheda gia' in PDF (prodotto: npm run pedine-pdf)
 js/                 il generatore, caricato come script classici in quest'ordine:
   geometry.js         primitive geometriche, rumore, PRNG con seme
   pedine.js           il codice colore/forma delle pedine (sorgente unica:

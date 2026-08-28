@@ -11,7 +11,8 @@
     "setup-https": "node tools/setup-https.mjs",
     "test": "node tests/generator-smoke.cjs",
     "audit": "node tests/map-audit.cjs",
-    "fronte": "python tools/render-fronte.py"
+    "fronte": "python tools/render-fronte.py",
+    "pedine-pdf": "node tools/pedine-pdf.mjs"
   },
   "engines": {
     "node": ">=18"
