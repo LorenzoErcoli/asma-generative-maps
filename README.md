@@ -170,8 +170,11 @@ Il computer e l'iPad devono stare sulla **stessa rete Wi-Fi**. Se cambi rete,
 l'indirizzo IP cambia e il certificato va rigenerato: `npm run setup-https -- --force`.
 
 **Su macOS e Linux** il certificato è generato con `openssl`, che c'è già di
-serie. **Su Windows** con gli strumenti di sistema, via PowerShell. In
-entrambi i casi il comando è lo stesso.
+serie, e salvato come coppia PEM. **Su Windows** con gli strumenti di
+sistema, via PowerShell, e salvato come `.pfx`. Il comando è lo stesso, e la
+differenza di formato non è un vezzo: l'`openssl` di serie su macOS è
+LibreSSL, che esporta i `.pfx` con cifratura vecchia, e Node li rifiuta con
+*«Unsupported PKCS12 PFX data»*.
 
 ### La rilettura AI (facoltativa nella facoltativa)
 
@@ -233,6 +236,11 @@ Lancia `npm run diagnosi`, che dice quale file la fornisce davvero. Le due
 cause storiche sono state corrette: un `.env` rimasto col segnaposto non
 copre più `.env.local`, e la chiave incollata a server acceso viene rilevata
 senza riavviare.
+
+**«Unsupported PKCS12 PFX data» e lo scanner si chiude**
+Vecchio certificato generato prima della correzione. Rifallo:
+`npm run setup-https -- --force`. Da ora un certificato illeggibile non
+chiude più lo scanner: dice cosa fare e prosegue in HTTP.
 
 **La camera non parte sull'iPad**
 Quasi sempre è il certificato: rifai `npm run setup-https -- --force` dopo aver

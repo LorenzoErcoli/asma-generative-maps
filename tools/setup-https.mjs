@@ -7,17 +7,25 @@
    basta e questo script non serve; da un altro dispositivo l'indirizzo e'
    http://192.168.x.x, che non e' contesto sicuro, e allora serve HTTPS.
 
-   Produce tre file in certs/, che ai-server.mjs si aspetta con questi nomi:
-     asma-local.pfx      chiave + certificato del server (PKCS#12)
-     asma-local.pass     password del .pfx
-     asma-local-ca.cer   la CA da installare sull'iPad (DER)
+   Produce in certs/ i file che ai-server.mjs cerca, in DUE formati diversi
+   a seconda della strada:
 
-   Su Windows delega a setup-https.ps1, che usa New-SelfSignedCertificate:
-   funziona, e' gia' collaudato, e non c'e' motivo di sostituirlo.
-   Altrove usa openssl, presente di serie su macOS e su qualsiasi Linux.
+     macOS e Linux, con openssl
+       asma-local-key.pem   chiave del server
+       asma-local-cert.pem  certificato del server piu' la CA
+     Windows, con New-SelfSignedCertificate
+       asma-local.pfx       chiave + certificato (PKCS#12)
+       asma-local.pass      password del .pfx
+     sempre
+       asma-local-ca.cer    la CA da installare sull'iPad (DER)
+
+   Perche' due formati: su macOS l'openssl di sistema e' LibreSSL, che
+   esporta i .pfx con cifratura vecchia. Node 24 (OpenSSL 3) li rifiuta con
+   "Unsupported PKCS12 PFX data" e lo scanner moriva all'avvio. Il PEM non
+   ha quel problema. Su Windows il .pfx nativo funziona e resta com'e'.
    ===================================================================== */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, existsSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, existsSync, writeFileSync, rmSync, readFileSync, copyFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { networkInterfaces, tmpdir, hostname } from 'node:os';
@@ -29,6 +37,10 @@ const CERT_DIR = join(ROOT, 'certs');
 const PFX = join(CERT_DIR, 'asma-local.pfx');
 const PASS = join(CERT_DIR, 'asma-local.pass');
 const CA = join(CERT_DIR, 'asma-local-ca.cer');
+// La strada openssl produce PEM, non PKCS#12: vedi il commento sotto, dove
+// viene scritto. Su Windows resta il .pfx di New-SelfSignedCertificate.
+const KEY_PEM = join(CERT_DIR, 'asma-local-key.pem');
+const CERT_PEM = join(CERT_DIR, 'asma-local-cert.pem');
 
 const force = process.argv.includes('--force');
 // --openssl forza la strada openssl anche su Windows: serve a provarla da qui
@@ -36,7 +48,8 @@ const force = process.argv.includes('--force');
 // non passare da PowerShell.
 const forceOpenssl = process.argv.includes('--openssl');
 
-if (!force && existsSync(PFX) && existsSync(PASS) && existsSync(CA)) {
+const giaPronto = existsSync(CA) && ((existsSync(KEY_PEM) && existsSync(CERT_PEM)) || (existsSync(PFX) && existsSync(PASS)));
+if (!force && giaPronto) {
   console.log('Certificato HTTPS locale gia presente. Usa --force per rigenerarlo.');
   process.exit(0);
 }
@@ -61,7 +74,10 @@ function localIPv4() {
 // continua a non vedere la camera e nessun indizio sul motivo.
 function verificaEsci() {
   try {
-    createSecureContext({ pfx: readFileSync(PFX), passphrase: readFileSync(PASS, 'utf8').trim() });
+    const materiale = existsSync(KEY_PEM) && existsSync(CERT_PEM)
+      ? { key: readFileSync(KEY_PEM), cert: readFileSync(CERT_PEM) }
+      : { pfx: readFileSync(PFX), passphrase: readFileSync(PASS, 'utf8').trim() };
+    createSecureContext(materiale);
     console.log('Verifica: il certificato si apre correttamente da Node.');
     process.exit(0);
   } catch (e) {
@@ -166,11 +182,17 @@ try {
     '-CAcreateserial', '-out', w('leaf.pem'), '-days', '730', '-sha256',
     '-extfile', w('leaf.cnf'), '-extensions', 'ext']);
 
-  // PKCS#12 per Node: chiave + certificato + catena, protetti da password
-  const password = randomBytes(16).toString('hex');
-  run('openssl', ['pkcs12', '-export', '-out', PFX, '-inkey', w('leaf.key'), '-in', w('leaf.pem'),
-    '-certfile', w('ca.pem'), '-passout', `pass:${password}`]);
-  writeFileSync(PASS, password, 'ascii');
+  // PEM, non PKCS#12. Su macOS l'openssl di sistema e' LibreSSL, che esporta
+  // i .pfx con cifratura vecchia (RC2/3DES); Node 24 usa OpenSSL 3, che
+  // quella cifratura la rifiuta, e lo scanner moriva all'avvio con
+  // "Unsupported PKCS12 PFX data". Il PEM non ha niente da cifrare e da
+  // negoziare: chiave e certificato in chiaro dentro certs/, che e' gia'
+  // escluso da Git e non lascia mai questo computer.
+  copyFileSync(w('leaf.key'), KEY_PEM);
+  writeFileSync(CERT_PEM, readFileSync(w('leaf.pem'), 'utf8') + readFileSync(w('ca.pem'), 'utf8'));
+  // via un eventuale .pfx di un tentativo precedente: se restasse, e il PEM
+  // sparisse, si tornerebbe a caricare proprio il file che non funziona.
+  for (const vecchio of [PFX, PASS]) if (existsSync(vecchio)) rmSync(vecchio);
 
   // la CA in DER: e' il formato che iOS si aspetta da un file .cer
   run('openssl', ['x509', '-in', w('ca.pem'), '-outform', 'DER', '-out', CA]);

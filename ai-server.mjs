@@ -5,6 +5,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
+import { createSecureContext } from 'node:tls';
 
 const ROOT=fileURLToPath(new URL('.',import.meta.url));
 // Da dove viene ogni valore: serve a dire in chiaro quale file ha vinto
@@ -318,14 +319,39 @@ function requestHostname(req){
   catch{return 'localhost'}
 }
 
-async function loadTls(){
+// Due formati, per due strade diverse: su Windows setup-https.ps1 produce un
+// PKCS#12 (.pfx), altrove openssl produce una coppia PEM. Si preferisce il
+// PEM quando c'e', perche' non ha problemi di compatibilita': un .pfx
+// generato da LibreSSL — l'openssl di serie su macOS — usa cifratura
+// vecchia che Node 24 rifiuta con "Unsupported PKCS12 PFX data".
+async function leggiMaterialeTls(){
+  const p=n=>resolve(ROOT,'certs',n);
   try{
-    const [pfx,passphrase]=await Promise.all([
-      readFile(resolve(ROOT,'certs','asma-local.pfx')),
-      readFile(resolve(ROOT,'certs','asma-local.pass'),'utf8')
-    ]);
-    return {pfx,passphrase:passphrase.trim()};
+    const [key,cert]=await Promise.all([readFile(p('asma-local-key.pem')),readFile(p('asma-local-cert.pem'))]);
+    return {materiale:{key,cert},formato:'PEM'};
+  }catch{/* si prova il pfx */}
+  try{
+    const [pfx,passphrase]=await Promise.all([readFile(p('asma-local.pfx')),readFile(p('asma-local.pass'),'utf8')]);
+    return {materiale:{pfx,passphrase:passphrase.trim()},formato:'PKCS#12'};
   }catch{return null}
+}
+// Un certificato illeggibile NON deve buttare giu' il server: prima si
+// prova ad aprirlo qui, e se non si apre si prosegue in HTTP dicendo cosa
+// fare. Prima createHttpsServer esplodeva piu' avanti e lo scanner moriva
+// del tutto — camera compresa, che in HTTP da questo computer funziona.
+async function loadTls(){
+  const trovato=await leggiMaterialeTls();
+  if(!trovato)return null;
+  try{
+    createSecureContext(trovato.materiale);
+    return trovato.materiale;
+  }catch(err){
+    console.warn('');
+    console.warn(`Il certificato in certs/ (${trovato.formato}) non e utilizzabile da Node: ${err.message}`);
+    console.warn('Si prosegue senza HTTPS. Per rifarlo:  npm run setup-https -- --force');
+    console.warn('');
+    return null;
+  }
 }
 
 const tls=await loadTls();
