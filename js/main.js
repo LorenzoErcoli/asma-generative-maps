@@ -39,8 +39,33 @@ function generate(){
   }
   pawns.sort((a,b)=>a.ord-b.ord);
 
-  const waterComps=comps(terr.water).map(cells=>{
-    const cls=classWater(cells), proper=word();
+  const coste=MARE_ENABLED?seaSides(terr.water):null;
+  // La fascia costiera si STACCA dal resto prima di classificare. Un fiume
+  // che sfocia in mare tocca la fila blu: senza questo taglio le due cose
+  // sono una componente connessa sola, e finivano o tutte mare (il fiume
+  // inghiottito) o tutte fiume (niente costa). Cosi' invece il mare resta
+  // mare e il fiume resta un fiume che ci arriva dentro.
+  const pezziAcqua=[];
+  for(const cells of comps(terr.water)){
+    const banda=coste?cells.filter(([r,c])=>seaCellIn(coste,r,c)):[];
+    if(!banda.length){pezziAcqua.push(cells);continue}
+    pezziAcqua.push(banda);
+    for(const p of comps(cells.filter(([r,c])=>!seaCellIn(coste,r,c))))pezziAcqua.push(p);
+  }
+  // un pezzo attaccato alla costa che arriva fino a un bordo attraversa
+  // comunque la citta': e' un fiume, anche se adesso tocca un bordo solo
+  // perche' l'altro capo gliel'ha preso il mare.
+  const tastaMare=cells=>!!coste&&cells.some(([r,c])=>
+    NB8.some(([dr,dc])=>seaCellIn(coste,r+dr,c+dc)));
+  const tastaBordo=cells=>cells.some(([r,c])=>r===0||r===N-1||c===0||c===N-1);
+  const classeAcqua=cells=>{
+    if(coste&&cells.every(([r,c])=>seaCellIn(coste,r,c)))return 'mare';
+    if(tastaMare(cells)&&cells.length>=3&&tastaBordo(cells))return 'fiume';
+    return classWater(cells);
+  };
+  const waterComps=pezziAcqua.map(cells=>{
+    const cls=classeAcqua(cells);
+    const proper=word();
     const label=cls==='fiume'?'Fiume '+proper : cls==='lago'?'Lago di '+proper
               : cls==='mare'?'Mare di '+proper : 'Fonte '+proper;
     const cx=cells.reduce((a,[r,c])=>a+W(c+.5),0)/cells.length;
@@ -52,8 +77,18 @@ function generate(){
   // calcolato dalla stessa costa che l'ha classificato 'mare'. Senza
   // questo il mare resta solo un velo disegnato sopra edifici e strade
   // gia' costruiti, invece di fermarli davvero a una costa.
-  const seaComp=waterComps.filter(c=>c.cls==='mare').sort((a,b)=>b.cells.length-a.cells.length)[0];
-  let sea=seaComp?seaBoundary(seaComp.cells):null;
+  const mari=waterComps.filter(c=>c.cls==='mare');
+  if(mari.length>1){
+    mari[0].cells=mari.flatMap(c=>c.cells);
+    for(const c of mari.slice(1))waterComps.splice(waterComps.indexOf(c),1);
+  }
+  const seaComp=mari[0];
+  let sea=coste;
+  // il taglio (sea) puo' essere disattivato dalla rete di sicurezza piu'
+  // sotto, se il mare mangerebbe quasi tutta la citta'; il disegno
+  // (seaDraw) no — il mare si vede comunque, solo senza il vero ritaglio.
+  const seaDraw=sea;
+  if(seaComp&&seaDraw){const q=seaLabelPoint(seaDraw);if(q){seaComp.cx=q[0];seaComp.cy=q[1]}}
   const hasWater=terr.water.length>0;
   // Una pedina con una categoria che non sta in CAT va scartata come non
   // valida, non deve far esplodere generate(): la tassonomia cambia (es.
@@ -107,9 +142,10 @@ function generate(){
   // il taglio duro si disattiva invece di produrre una mappa vuota — il
   // mare resta comunque visibile, solo senza il vero ritaglio nel tessuto.
   if(sea){
-    const landPoly=clipHalf(cityPoly,sea.nVec,sea.offset,false);
+    let landPoly=cityPoly;
+    for(const lato of sea)landPoly=landPoly.length>=3?clipHalf(landPoly,lato.nVec,seaMeanOffset(lato),false):[];
     const landArea=landPoly.length>=3?polyArea(landPoly):0;
-    if(landArea<polyArea(cityPoly)*.35)sea=null;
+    if(landArea<polyArea(cityPoly)*(sea.length>=3?.10:.35))sea=null;
   }
 
   /* --- 4. quartieri --- */
@@ -128,6 +164,52 @@ function generate(){
     n:cells.length,
   }));
   const {out,bridges,rail,diag}=buildTessuto(cityPoly,river,places,railStations,hills,sea);
+  if(sea){
+    for(const lato of sea)for(const pezzo of seaPromenade(lato,cityPoly,sea))
+      out.streets.push({pts:pezzo,depth:0,rank:'lungomare'});
+    if(rail)rail.segments=clipSegmentsToLand(rail.segments,sea);
+  }
+  /* la periferia si dirada invece di finire su una linea. Nella fascia
+     FRANGIA (tre o quattro file di lotti) ogni isolato, a seconda di quanto
+     e' vicino all'orlo, ha una probabilita' crescente di non essere
+     costruito e una taglia calante: cosi' l'ultimo strato e' fatto di poche
+     case piccole e distanti, quello prima e' quasi pieno, e in mezzo c'e'
+     una vera degradazione. Il fondo urbano segue i lotti, quindi dove il
+     lotto sparisce torna campagna da solo, senza chiazze grigie.
+     Sul fronte mare niente di tutto questo: li' i palazzi devono restare
+     in riga, affacciati sul lungomare. */
+  {
+    const via=new Set();
+    // un lotto che se ne va non lascia sempre il vuoto: una parte resta
+    // come verde. Sono proprio quelle macchie a sfumare il confine della
+    // citta' — ma solo una parte, se no la periferia diventa un parco.
+    const leva=b=>{
+      via.add(b);
+      if(b.A>=MIN_BUILDING_DRAW&&b.t>.35&&RND()<FRANGIA_VERDE)
+        out.reserved.push({type:'verde',poly:b.poly,name:null,
+          shapePoly:organicBlob(b.poly,.24,rr(0,Math.PI*2),.72)});
+    };
+    for(const b of out.buildings){
+      if(b.landmark||b.footprintParts)continue;
+      const d=dist(b.c,nearestOnPoly(cityPoly,b.c));
+      if(d>FRANGIA)continue;
+      if(sea&&seaDistance(sea,b.c)<FRANGIA)continue;
+      // il diradamento non e' uguale tutto intorno: una chiazza di rumore
+      // lo anticipa da una parte e lo rimanda dall'altra, come una citta'
+      // che si allunga lungo una direttrice e si ferma prima altrove.
+      const chiazza=FRANGIA_CHIAZZE*fbm(b.c[0]*.0045,b.c[1]*.0045,3);
+      const t=clamp(1-d/FRANGIA+chiazza,0,1.15);   // 1 sull'orlo, 0 dentro
+      b.t=t;
+      if(RND()<FRANGIA_VUOTO*Math.pow(t,1.7)){leva(b);continue}
+      b.poly=scalePoly(b.poly,b.c,1-rr(FRANGIA_MAX*.35,FRANGIA_MAX)*t);
+      b.A=polyArea(b.poly);
+      // un lotto di frangia troppo storto per un rettangolo finirebbe
+      // disegnato come cortile tratteggiato: fuori dalla citta' e' solo un
+      // fantasma di isolato, meglio che il bordo si fermi prima.
+      if(polyArea(rectFootprint(b.poly,.84))<b.A*RECT_ACCEPT)leva(b);
+    }
+    if(via.size)out.buildings=out.buildings.filter(b=>!via.has(b));
+  }
 
   // le piazze occupano davvero un pezzo di tessuto (out.reserved): il
   // marcatore d'itinerario si appoggia al bordo di quella forma vera,
@@ -204,7 +286,8 @@ function generate(){
   const cfarms=makeFarms(F,WF,villages);
   S.push(countryside(villages,country,cfields,cfarms,P));
 
-  for(const l of cityLoops)S.push(`<path d="${dPoly(l,1)}" fill="${P.void}" stroke="none"/>`);
+  // il fondo urbano segue i lotti veri, non il contorno liscio della citta'
+  S.push(tessutoGroundLayer(out,P));
   // sotto agli edifici: dove un edificio vero esiste gia' lo ricopre
   // comunque lui, la fascia si vede solo dove prima non c'era nulla.
   S.push(`<g clip-path="url(#cityClip)">${riverbankFillLayer(river,P,out)}</g>`);
@@ -214,6 +297,7 @@ function generate(){
   S.push(gardenDetailsLayer(out,P));
   S.push(collinaContourLayer(out,P));
   S.push(tessutoStreetsLayer(out,P));
+  S.push(seaLayer(seaDraw,P));
   S.push(waterLayer(waterLoops,rivers,waterComps,docks));
   S.push(tessutoBridgesLayer(bridges,P));
   S.push(tessutoRailLayer(rail,river,P));

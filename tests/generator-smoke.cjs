@@ -41,10 +41,30 @@ assert(api.classWater([[4, 0], [4, 1], [4, 2], [4, 3], [4, 4], [4, 5], [4, 6], [
 assert(api.classWater([[1, 3], [2, 3], [3, 3]]) === 'laghetto', 'water touching no edge is not a river');
 assert(api.classWater([[3, 3]]) === 'laghetto', 'single cell classification');
 assert(api.classWater([[3, 3], [3, 4], [4, 3], [4, 4]]) === 'lago', 'lake classification');
-// il mare e' disattivato di proposito in world.js (MARE_ENABLED): finche' e'
-// spento una costa si legge come acqua ferma. L'asserzione resta qui e torna
-// viva da sola nel momento in cui il flag viene rialzato.
-assert(api.classWater([[0, 1], [0, 2], [0, 3], [1, 1], [1, 2], [1, 3]]) === (api.MARE_ENABLED ? 'mare' : 'lago'), 'coast classification');
+// --- INVARIANTE: quando e' costa e quando no ---
+// Il mare non e' piu' "una macchia larga appoggiata a un bordo": e' una FILA
+// di caselle blu lungo un lato, lunga almeno SEA_MIN_RUN e poco profonda
+// (seaSides in world.js). E' questa severita' a impedire che un fiume largo
+// si faccia passare per costa e venga tagliato via da un lato solo — il
+// motivo per cui il mare era rimasto spento per mesi.
+const fila = r => Array.from({ length: 8 }, (_, c) => [r, c]);
+assert(api.classWater(fila(0)) === 'mare', 'una fila intera sul bordo e\' costa');
+assert(api.classWater([[0, 1], [0, 2], [0, 3], [0, 4]]) === 'mare', 'quattro caselle di fila bastano');
+assert(api.classWater([[0, 1], [0, 2], [0, 3], [1, 1], [1, 2], [1, 3]]) === 'lago',
+  'tre caselle di fila, per quanto profonde, non sono una costa');
+// un fiume largo tocca il bordo con quattro colonne, ma sono profonde fino
+// in fondo: resta un fiume.
+assert(api.classWater([2, 3, 4, 5].flatMap(c => Array.from({ length: 8 }, (_, r) => [r, c]))) === 'fiume',
+  'un fiume largo non e\' una costa');
+// due file intere restano costa: e' profonda 2, che su una fila da 8 ci sta.
+assert(api.classWater([...fila(0), ...fila(1)]) === 'mare', 'due file sul bordo sono ancora costa');
+// il mare tutto intorno: quattro coste, una per lato — e' l'isola.
+{
+  const anello = [...fila(0), ...fila(7),
+    ...Array.from({ length: 8 }, (_, r) => [r, 0]), ...Array.from({ length: 8 }, (_, r) => [r, 7])];
+  assert(api.classWater(anello) === 'mare', 'anello sul bordo: isola');
+  assert(api.seaSides(anello).length === 4, 'l\'isola ha quattro coste');
+}
 
 const axis = api.riverAxis([[0, 1], [1, 2], [2, 2], [2, 3], [3, 3]]);
 assert(axis.every((p, i) => !i || Math.hypot(p[0] - axis[i - 1][0], p[1] - axis[i - 1][1]) < 156), 'continuous river axis');

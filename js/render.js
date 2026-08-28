@@ -15,6 +15,7 @@
 // ferrovia (sidetrack) resta sempre locale anche se lungo quanto il binario.
 function streetRank(c){
   const len=dist(c.pts[0],c.pts[1]);
+  if(c.rank==='lungomare')return 'corso';
   if(c.rank==='sidetrack')return 'via';
   if(c.rank==='bridgehead'||c.majorRoute||c.depth<=1||len>190)return 'corso';
   if(c.depth>=6&&len<48)return 'vicolo';
@@ -27,7 +28,8 @@ function tessutoStreetsLayer(out,P){
     const rank=streetRank(c);
     const w=rank==='corso'?5.4:rank==='vicolo'?1.5:2.7;
     const col=rank==='corso'?P.major:rank==='vicolo'?P.builtLn:P.street;
-    s+=`<path d="M${F1(c.pts[0][0])} ${F1(c.pts[0][1])} L${F1(c.pts[1][0])} ${F1(c.pts[1][1])}" stroke="${col}" stroke-width="${w}"/>`;
+    const d=c.rank==='lungomare'?dPoly(c.pts,false):`M${F1(c.pts[0][0])} ${F1(c.pts[0][1])} L${F1(c.pts[1][0])} ${F1(c.pts[1][1])}`;
+    s+=`<path d="${d}" stroke="${col}" stroke-width="${w}"/>`;
   }
   return s+'</g>';
 }
@@ -185,6 +187,11 @@ function tessutoStreetChains(out){
     const rank=streetRank(c);
     const big=rank==='corso';
     const L=dist(c.pts[0],c.pts[1]);
+    if(c.rank==='lungomare'){
+      let tot=0;for(let k=0;k<c.pts.length-1;k++)tot+=dist(c.pts[k],c.pts[k+1]);
+      if(tot>150){c.name='Lungomare '+propr();c.pid='t'+(i++);c._rank=rank}
+      continue;
+    }
     if(!(big?L>90:(L>140&&RND()<.42)))continue;
     c.name=streetName(big);
     c.pid='t'+(i++);
@@ -349,6 +356,9 @@ function waterLayer(loops,rivers,waterComps,docks){
     s+=`<circle cx="${F1(p[0])}" cy="${F1(p[1])}" r="${F1(r)}" fill="url(#onde)"/>`;
   }
   for(const l of loops)s+=`<path d="${dPoly(l,1)}" fill="none" stroke-width=".8" opacity=".45" stroke-dasharray="1 3" transform="translate(0,2)"/>`;
+  // i banchi di sabbia della foce, sopra l'acqua del fiume
+  for(const rv of rivers)for(const b of (rv.banchi||[]))
+    s+='<path d="'+dPoly(b,true)+'" fill="'+SEA_SAND+'" stroke-width=".7"/>';
   for(const d of docks){
     for(const [a,b] of d.piers)
       s+=`<path d="M${F1(a[0])} ${F1(a[1])} L${F1(b[0])} ${F1(b[1])}" stroke-width="2.2" opacity=".7" stroke-linecap="round"/>`;
@@ -604,4 +614,86 @@ function sidebar(places,waterComps,terr,ch,P,districts,mapNum){
   if(terr.hill.length)kinds.push('collina');
   s+=`<text x="${X}" y="${y}" font-size="9.5" fill="${P.ink}" opacity=".6" font-style="italic">Morfologia: ${kinds.length?kinds.join(' · '):'pianura'} — ${districts.length} quartieri</text>`;
   return s;
+}
+
+/* ---------------- il mare: spiaggia e acqua ---------------- */
+// il bordo interno della sabbia: appena oltre il lungomare, quel tanto che
+// basta perche' la strada resti tutta sulla terra.
+function seaCoastLine(sea){
+  const pts=[];
+  for(let u=-24;u<=MAPW+24;u+=8)pts.push(seaPt(sea,u,seaCoastT(sea,u)+sea.dir*SEA_LIP));
+  return pts;
+}
+// la battigia: la costa spostata al largo di tutta la spiaggia, con un
+// secondo rumore piu' corto sopra — la sabbia non ha larghezza fissa.
+function seaShoreLine(sea){
+  const pts=[];
+  for(let u=-24;u<=MAPW+24;u+=8){
+    const t=seaCoastT(sea,u)+sea.dir*(SEA_LIP+SEA_BEACH*(1+.45*fbm(u*.013,sea.wseed+21,3)));
+    pts.push(seaPt(sea,u,t));
+  }
+  return pts;
+}
+// i riempimenti possono accavallarsi (stesso colore, negli angoli non si
+// vede), le LINEE no: la battigia del lato sinistro, tirata da un capo
+// all'altro, attraverserebbe l'acqua del lato di sopra. Si tengono solo i
+// pezzi che non sono gia' in mare per conto di un'altra costa.
+function seaPieces(sea,sides,pts){
+  const out=[];let run=[];
+  for(const p of pts){
+    const altrove=sides.some(o=>o!==sea&&o.dir*seaT(o,p)>o.dir*seaCoastT(o,seaU(o,p)));
+    if(altrove){if(run.length>1)out.push(run);run=[]}
+    else run.push(p);
+  }
+  if(run.length>1)out.push(run);
+  return out;
+}
+function seaLayer(sides,P){
+  if(!sides||!sides.length)return '';
+  let sabbia='',acqua='';
+  for(const sea of sides){
+    const far=sea.dir>0?MAPW+24:-24;
+    const shore=seaShoreLine(sea), coast=seaCoastLine(sea);
+    sabbia+='<path d="'+dPoly(shore.concat(coast.slice().reverse()),true)+'" fill="'+SEA_SAND+'" stroke="none"/>';
+    acqua+='<path d="'+dPoly(shore.concat([seaPt(sea,MAPW+24,far),seaPt(sea,-24,far)]),true)+'" fill="url(#onde)" stroke="none"/>';
+    for(const pezzo of seaPieces(sea,sides,shore))
+      acqua+='<path d="'+dPoly(pezzo,false)+'" fill="none" stroke="'+P.waterLn+'" stroke-width="1.5"/>';
+    for(let k=1;k<=2;k++){
+      const off=shore.map(p=>seaPt(sea,seaU(sea,p),seaT(sea,p)+sea.dir*k*7));
+      for(const pezzo of seaPieces(sea,sides,off))
+        acqua+='<path d="'+dPoly(pezzo,false)+'" fill="none" stroke="'+P.waterLn+'" stroke-width=".8" opacity="'+(.5-k*.13).toFixed(2)+'" stroke-dasharray="1 3"/>';
+    }
+  }
+  // prima tutte le spiagge, poi tutta l'acqua: negli angoli, dove due
+  // coste si incrociano, l'acqua deve vincere sulla sabbia dell'altra.
+  return '<g>'+sabbia+acqua+'</g>';
+}
+// Il terreno urbano non e' piu' la macchia liscia del contorno citta': e'
+// l'unione dei lotti veri, allargati quel tanto che chiude le strade fra
+// uno e l'altro. Cosi' la citta' finisce dove finiscono gli isolati —
+// irregolare — invece che su una linea tirata col compasso, e fra l'ultima
+// casa e la sabbia non resta nessuna striscia grigia.
+function tessutoGroundLayer(out,P){
+  let s='<g fill="'+P.void+'" stroke="none">';
+  const add=poly=>{
+    if(!poly||poly.length<3)return;
+    s+='<path d="'+dPoly(scalePoly(poly,centroid(poly),1.26),true)+'"/>';
+  };
+  for(const b of out.buildings)add(b.poly);
+  for(const r of out.reserved)add(r.poly);
+  return s+'</g>';
+}
+// l'etichetta va al largo, nella fascia d'acqua piu' larga: il centroide
+// delle caselle blu cadrebbe a cavallo della battigia.
+function seaLabelPoint(sides){
+  if(!sides||!sides.length)return null;
+  let best=null;
+  for(const sea of sides){
+    const t0=seaCoastT(sea,MAPW/2), banda=sea.dir>0?(MAPW-t0):t0;
+    // il nome resta orizzontale: su una costa verticale la stessa fascia
+    // offre molto meno spazio, e vale meno.
+    const spazio=sea.axis==='x'?banda*.55:banda;
+    if(!best||spazio>best.spazio)best={sea,t0,banda,spazio};
+  }
+  return seaPt(best.sea,MAPW/2,best.t0+best.sea.dir*best.banda*.5);
 }

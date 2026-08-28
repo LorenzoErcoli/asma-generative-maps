@@ -13,6 +13,7 @@
     "setup-https": "node tools/setup-https.mjs",
     "test": "node tests/generator-smoke.cjs",
     "audit": "node tests/map-audit.cjs",
+    "mare": "node tests/mare-audit.cjs",
     "fronte": "python tools/render-fronte.py",
     "pedine-pdf": "node tools/pedine-pdf.mjs"
   },

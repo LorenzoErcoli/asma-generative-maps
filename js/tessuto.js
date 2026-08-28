@@ -21,7 +21,7 @@ const MIN_BUILDING_DRAW=180;
 // quanta area del lotto deve restare dentro rectFootprint perche' valga
 // come edificio vero. Sotto, la parte esclusa (out.buildings gia' filtrati
 // in "cortile in verde" qui sotto) diventa giardino o resta cortile aperto.
-const RECT_ACCEPT=.34;
+const RECT_ACCEPT=.24;
 const RAIL_HW=3.5;
 // Quanto lontano puo' stare l'aggancio di una rampa di ponte dall'impalcato.
 // 440 su una mappa larga 1100 e' larghissimo — permette "rampe" che
@@ -314,12 +314,12 @@ function trimRiver(poly,river){
 // via diventa il lungomare quando emerge un vero confine (fronte(poly)).
 function trimSea(poly,sea){
   if(!sea)return{poly,front:null};
+  const off=seaCutOffset(sea,poly);
   const proj=poly.map(v=>v[0]*sea.nVec[0]+v[1]*sea.nVec[1]);
   const lo=Math.min(...proj),hi=Math.max(...proj);
-  if(hi<=sea.offset)return{poly,front:null};
-  if(lo>sea.offset)return{poly:null,front:null};
-  const front=sliceLine(poly,sea.nVec,sea.offset)[0]||null;
-  return{poly:clipHalf(poly,sea.nVec,sea.offset,false),front};
+  if(hi<=off)return{poly,front:null};
+  if(lo>off)return{poly:null,front:null};
+  return{poly:clipHalf(poly,sea.nVec,off,false),front:null};
 }
 function segCrossesRiver(a,b,river){
   if(!river)return null;
@@ -525,11 +525,12 @@ function subdivide(polyIn,depth,ctx,out){
   // sezione ancore su un poligono mai ancora bagnato dal taglio del mare,
   // che allora arrivava troppo tardi (dopo section C, il fiume).
   if(ctx.sea){
-    const seaTrim=trimSea(polyIn,ctx.sea);
-    if(seaTrim.poly===null)return;
-    polyIn=seaTrim.poly;
-    if(seaTrim.front&&polyArea(polyIn)<BLOCK_TARGET*2.5)out.streets.push({pts:seaTrim.front,depth,rank:'lungomare'});
-    if(polyIn.length<3||polyArea(polyIn)<MIN_LEAF)return;
+    for(const lato of ctx.sea){
+      const seaTrim=trimSea(polyIn,lato);
+      if(seaTrim.poly===null)return;
+      polyIn=seaTrim.poly;
+      if(polyIn.length<3||polyArea(polyIn)<MIN_LEAF)return;
+    }
   }
 
   // B) ancore: aspetto che il poligono sia gia' abbastanza vicino alla

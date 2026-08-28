@@ -12,7 +12,7 @@ const EXTERNAL_GRID_CHANNEL='asma-grid-v1';
 function renderLegend(){
   const host=$('legendBody');if(!host)return;
   let html=`<div class="legend-terrain">
-    <div class="legend-terrain-row"><b>Blu</b> — Acqua. Fiume, lago o mare: lo decide da sola la continuità dell'acqua una volta piazzata, qualunque forma.</div>
+    <div class="legend-terrain-row"><b>Blu</b> — Acqua. Fiume, lago o mare: lo decide da sola la forma dell'acqua una volta piazzata. Una <b>fila lungo un lato</b> della scacchiera (almeno quattro caselle, anche con un buco in mezzo) diventa <b>mare</b>, con la spiaggia e il lungomare; due file fanno una baia, tutti e quattro i lati fanno un'isola. Una striscia che attraversa resta un <b>fiume</b> — e se arriva fino al mare, ci sfocia con il suo delta.</div>
     <div class="legend-terrain-row"><b>Verde</b> — Terreno. 1 pezzo isolato = giardino, 2 adiacenti = parco cittadino, un agglomerato (3+) = collina dentro la città o montagna se tocca il bordo della scacchiera.</div>
     <div class="legend-terrain-row"><b>Grigio</b> — Jolly: un desiderio libero, che scrivi tu nel pannello "Personalizza le pedine". La forma dice quale slot &egrave;:
       <span class="legend-jolly">${JOLLY_MARKER_SHAPES.map((f,i)=>`<span title="pedina grigia a ${SHAPE_NAME[f]}">${pawnChipSvg('grigio',f,18)}J${i+1}</span>`).join('')}</span></div>

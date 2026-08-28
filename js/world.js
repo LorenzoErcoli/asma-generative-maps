@@ -131,59 +131,26 @@ function comps(cells){
 // taglia mai, quindi appariva disegnato sopra le case. Chi non attraversa
 // resta un lago qui; potra' comunque diventare un vero affluente piu'
 // sotto, in waterField, se abbastanza vicino a un fiume che attraversa.
-// una macchia d'acqua larga incollata a un solo bordo (la costa) — usata
-// sia per classificare 'mare' sia per sapere, dopo, DOVE passa esattamente
-// la linea di costa (seaBoundary sotto): stessa fonte, mai due risposte
-// diverse su cos'e' il mare.
-function edgeHug(cells){
-  const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
-  const sr=Math.max(...rs)-Math.min(...rs), sc=Math.max(...cs)-Math.min(...cs);
-  const runs=[
-    {side:'top',n:cells.filter(([r])=>r===0).length,along:sc,deep:sr},
-    {side:'bottom',n:cells.filter(([r])=>r===N-1).length,along:sc,deep:sr},
-    {side:'left',n:cells.filter(([,c])=>c===0).length,along:sr,deep:sc},
-    {side:'right',n:cells.filter(([,c])=>c===N-1).length,along:sr,deep:sc},
-  ];
-  let best=null;
-  for(const r of runs)if(r.n>=2&&r.along>=Math.max(1,r.deep*1.25)&&(!best||r.along>best.along))best=r;
-  return best;
-}
-// TOLTO TEMPORANEAMENTE dalla generazione (richiesta esplicita): una fascia
-// d'acqua stretta che attraversa la citta' — quindi con edifici veri su
-// ENTRAMBI i lati — veniva letta come costa (edgeHug) e tagliata dura su un
-// solo lato, ma visivamente e' un fiume in tutto e per tutto (ferrovia in
-// affiancamento, palazzi ai due lati...): il taglio a senso unico del mare
-// non ci sta. Rimettere MARE_ENABLED=true riattiva mare/trimSea cosi' come
-// sono (edgeHug/seaBoundary in tessuto.js restano intatti, solo inutilizzati)
-// — prima pero' va ripensato QUANDO davvero e' costa e non fiume largo.
-const MARE_ENABLED=false;
+// Il mare non e' piu' "una macchia larga appoggiata a un bordo". Era quella
+// la regola che aveva costretto a spegnerlo per mesi: una fascia stretta che
+// attraversava la citta' — con edifici veri su ENTRAMBI i lati, quindi un
+// fiume in tutto e per tutto — veniva letta come costa e tagliata dura da un
+// lato solo. Adesso la costa e' un PROFILO letto lato per lato (seaSides,
+// in fondo a questo file): una fila di caselle blu lungo un bordo, lunga
+// almeno SEA_MIN_RUN e poco profonda. Lunga e bassa e' costa, stretta e
+// profonda resta un fiume.
+const MARE_ENABLED=true;
 function classWater(cells){
   if(cells.length===1)return 'laghetto';
   // il mare va controllato PRIMA del fiume: una costa tocca quasi sempre
-  // anche l'angolo opposto in altezza o larghezza — con l'ordine invertito
-  // vinceva sempre 'fiume' e 'mare' non veniva mai raggiunto, letteralmente
-  // codice morto. Un fiume vero e' invece STRETTO dove tocca il bordo
-  // (poche celle, n<2 sotto); edgeHug non lo confonde con una costa.
-  if(MARE_ENABLED&&edgeHug(cells))return 'mare';
+  // anche il bordo opposto in altezza o larghezza — con l'ordine invertito
+  // vincerebbe sempre 'fiume' e 'mare' non verrebbe mai raggiunto.
+  if(MARE_ENABLED&&seaSides(cells))return 'mare';
   const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
   const tT=rs.includes(0),tB=rs.includes(N-1),tL=cs.includes(0),tR=cs.includes(N-1);
   if((tT&&tB)||(tL&&tR))return 'fiume';
   return cells.length<=3?'laghetto':'lago';
 }
-// dove passa davvero la costa, in coordinate mondo: un semipiano "qui e'
-// terra" pronto per un vero taglio nel tessuto (trimSea in tessuto.js) —
-// esattamente come trimRiver taglia lungo il fiume, cosi' il mare smette
-// di essere solo un velo disegnato sopra citta' gia' costruita.
-function seaBoundary(cells){
-  const hug=edgeHug(cells);
-  if(!hug)return null;
-  const rs=cells.map(c=>c[0]),cs=cells.map(c=>c[1]);
-  if(hug.side==='right')return{nVec:[1,0],offset:W(Math.min(...cs))};
-  if(hug.side==='left')return{nVec:[-1,0],offset:-W(Math.max(...cs)+1)};
-  if(hug.side==='bottom')return{nVec:[0,1],offset:W(Math.min(...rs))};
-  return{nVec:[0,-1],offset:-W(Math.max(...rs)+1)};
-}
-
 /* ---------------- centro urbano, MST, campo urbanita' ---------------- */
 function mstEdges(P){
   if(P.length<2)return [];
@@ -296,7 +263,7 @@ function extendRiverToFrame(path){
 }
 function waterField(waterComps,places){
   const s=GW+1, WFa=new Float32Array(s*s), WLa=new Float32Array(s*s);
-  const src=[];
+  const src=[]; const seas=[];
   const rivers=[];
   const riverCps=waterComps.filter(cp=>cp.cls==='fiume'&&cp.cells.length>=2);
   const borderCount=cp=>cp.cells.filter(([r,c])=>r===0||r===N-1||c===0||c===N-1).length;
@@ -366,25 +333,23 @@ function waterField(waterComps,places){
   for(const cp of waterComps){
     const cls=cp.cls,cells=cp.cells;
     if(cls==='fiume'&&cells.length>=2)continue;
+    if(cls==='mare'){seas.push(cp);continue}
     const sig=(cls==='laghetto')?.30*CELL:(cls==='lago')?.46*CELL:.50*CELL;
     for(const [r,c] of cells)src.push({x:W(c+.5),y:W(r+.5),sig,amp:1});
-    if(cls==='mare'){
-      for(const [r,c] of cells){
-        const o=[];
-        if(r===0)o.push([0,-1]); if(r===N-1)o.push([0,1]);
-        if(c===0)o.push([-1,0]); if(c===N-1)o.push([1,0]);
-        for(const [dx,dy] of o)for(let k=1;k<=6;k++)
-          src.push({x:W(c+.5+dx*k),y:W(r+.5+dy*k),sig:sig*1.4,amp:1});
-      }
-    }
   }
   const island=null;
   const HW=12;
+  const costeF=seas.length?seaSides(seas.flatMap(cp=>cp.cells)):null;
   for(const rv of rivers){
     rv.hw=rv.pts.map((p,i)=>{
       let h=(rv.tributary?8.5:HW)*(1+.26*fbm(i*.016,4.7,2));
+      if(costeF){
+        const dm=seaLandDist(costeF,p);
+        h*=1+DELTA_SVASO*(1-clamp(dm/DELTA_LEN,0,1));
+      }
       return h;
     });
+    rv.banchi=costeF?deltaBanchi(rv,costeF):[];
     const L=[],R=[];
     for(let i=0;i<rv.pts.length;i++){
       const p0=rv.pts[Math.max(0,i-1)],p1=rv.pts[Math.min(rv.pts.length-1,i+1)];
@@ -419,6 +384,17 @@ function waterField(waterComps,places){
       if(dm<hw+6)v=Math.max(v, clamp((hw+6-dm)/8,0,1.1));
     }
     WFa[j*s+i]=v;
+  }
+  // Il mare e' acqua PIENA oltre la costa, non una macchia sfumata: da qui
+  // in poi campagna, borghi, strade di campagna e pedine lo evitano da
+  // soli, perche' leggono tutti questo campo. Le coste si misurano
+  // sull'UNIONE delle macchie di mare, non su ognuna: una fila di pedine
+  // blu con un buco in mezzo sono due componenti connesse ma una costa
+  // sola — ed e' cosi' che le mette la gente.
+  if(seas.length){
+    const sides=seaSides(seas.flatMap(cp=>cp.cells));
+    if(sides)for(let j=0;j<=GH;j++)for(let i=0;i<=GW;i++)
+      if(seaWet(sides,i*STEP,j*STEP))WFa[j*s+i]=1.2;
   }
   return {WF:WFa,WL:WLa,rivers,island};
 }
@@ -701,4 +677,262 @@ function blob(x,y,r){
     pts.push([x+Math.cos(a)*rad, y+Math.sin(a)*rad]);
   }
   return {x,y,r,poly:chaikin(pts,2)};
+}
+
+/* ---------------- il mare: dove passa la costa ---------------- */
+const SEA_MIN_RUN=4, SEA_BEACH=26;
+const SEA_WAVE=9, SEA_WAVE_LONG=24;
+const SEA_LIP=3.5;
+const FRANGIA=165, FRANGIA_MAX=0.3;
+const FRANGIA_VUOTO=0.8, FRANGIA_CHIAZZE=0.42;
+const FRANGIA_VERDE=0.17;
+const DELTA_LEN=150, DELTA_SVASO=2.3;
+
+// I banchi di sabbia della foce: isolotti allungati nel senso della
+// corrente, dentro la fascia gia' svasata del fiume. Stanno dove il
+// tessuto non arriva comunque (la fascia del fiume e' terreno vietato), e
+// sono loro a far leggere la foce come un delta invece che come un
+// imbuto.
+function deltaBanchi(rv,sides){
+  if(!sides)return [];
+  // solo il tratto di foce vero e proprio: dalla battigia a un paio di
+  // caselle nell'entroterra. Piu' al largo sarebbero isole in mezzo al
+  // mare, non banchi di un delta.
+  const foce=[];
+  for(let i=0;i<rv.pts.length;i++){
+    const dm=seaLandDist(sides,rv.pts[i]);
+    if(dm>-30&&dm<DELTA_LEN*.95)foce.push(i);
+  }
+  if(foce.length<5)return [];
+  const banchi=[],n=3+Math.floor(RND()*3);
+  for(let k=0;k<n;k++){
+    const i=foce[Math.floor(rr(.08,.92)*foce.length)], p=rv.pts[i], hw=rv.hw[i];
+    const a=rv.pts[Math.max(0,i-2)], b=rv.pts[Math.min(rv.pts.length-1,i+2)];
+    const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
+    const ux=dx/L, uy=dy/L, nx=-uy, ny=ux;
+    const off=rr(-.55,.55)*hw, la=rr(.26,.55)*hw, lb=rr(.09,.17)*hw;
+    const c=[p[0]+nx*off, p[1]+ny*off];
+    const pts=[];
+    for(let t=0;t<22;t++){
+      const th=t/22*Math.PI*2;
+      const w=1+.24*fbm(Math.cos(th)*2+k*9.7,Math.sin(th)*2,2);
+      pts.push([c[0]+ux*Math.cos(th)*la*w+nx*Math.sin(th)*lb*w,
+                c[1]+uy*Math.cos(th)*la*w+ny*Math.sin(th)*lb*w]);
+    }
+    banchi.push(pts);
+  }
+  return banchi;
+}
+
+// Un edificio e' un rettangolo VERO. Il rectFootprint originale parte da un
+// rettangolo e lo TAGLIA con i lati del lotto: quando il lotto e' un
+// trapezio — e sul bordo citta', sulla costa o lungo il fiume lo e' quasi
+// sempre — quello che resta e' un trapezio anche lui, e in mappa si legge
+// come un palazzo tagliato di sbieco. Qui invece si cerca il punto piu'
+// interno del lotto e da li' si allarga un lato per volta finche' il
+// rettangolo ci sta INTERO: piu' piccolo, ma sempre un rettangolo.
+function rectFootprint(poly,maxShrink){
+  const {c,dirVec,nVec,maxA,maxN}=orientedExtent(poly);
+  const MARGIN=Math.min(4,Math.min(maxA,maxN)*.12);
+  const lati=[];
+  for(let i=0;i<poly.length;i++){
+    const a=poly[i],b=poly[(i+1)%poly.length];
+    const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
+    let nv=[dy/L,-dx/L],off=a[0]*nv[0]+a[1]*nv[1];
+    if(c[0]*nv[0]+c[1]*nv[1]-off>0){nv=[-nv[0],-nv[1]];off=-off}
+    lati.push([nv[0],nv[1],off-MARGIN]);
+  }
+  const dentro=p=>{for(const l of lati)if(p[0]*l[0]+p[1]*l[1]>l[2])return false;return true};
+  // il punto piu' lontano da tutti i lati: e' da li' che il rettangolo ha
+  // piu' margine per crescere in tutte e quattro le direzioni.
+  let centro=c,largo=-Infinity;
+  for(let i=-2;i<=2;i++)for(let j=-2;j<=2;j++){
+    const p=addv(c,dirVec,i*maxA*.28,nVec,j*maxN*.28);
+    let m=Infinity;
+    for(const l of lati)m=Math.min(m,l[2]-(p[0]*l[0]+p[1]*l[1]));
+    if(m>largo){largo=m;centro=p}
+  }
+  if(largo<=.5)return [];
+  const box=e=>[addv(centro,dirVec,-e[0],nVec,-e[2]),addv(centro,dirVec,e[1],nVec,-e[2]),
+                addv(centro,dirVec,e[1],nVec,e[3]),addv(centro,dirVec,-e[0],nVec,e[3])];
+  const lim=[maxA*maxShrink,maxA*maxShrink,maxN*maxShrink,maxN*maxShrink];
+  const e=[largo*.5,largo*.5,largo*.5,largo*.5];
+  for(let giro=0;giro<4;giro++)for(let s=0;s<4;s++){
+    let passo=(lim[s]-e[s])*.5;
+    while(passo>.6){
+      const prova=e.slice(); prova[s]=Math.min(lim[s],prova[s]+passo);
+      if(box(prova).every(dentro))e[s]=prova[s];
+      passo*=.5;
+    }
+  }
+  return box(e);
+}
+const SEA_SAND='#f0e2c0';
+// un seme di rumore diverso per lato: quattro coste identiche si
+// riconoscerebbero subito come la stessa curva ruotata.
+const SEA_LATI={top:3.1,bottom:7.9,left:11.3,right:5.7};
+
+const seaAt=(prof,k)=>prof[Math.max(0,Math.min(N-1,k))];
+const seaU=(sea,p)=>sea.axis==='x'?p[1]:p[0];   // lungo la costa
+const seaT=(sea,p)=>sea.axis==='x'?p[0]:p[1];   // verso il largo
+const seaPt=(sea,u,t)=>sea.axis==='x'?[t,u]:[u,t];
+
+// quante caselle blu ATTACCATE al bordo, colonna per colonna (riga per
+// riga sui lati verticali). E' questo profilo, non una retta, a dire dove
+// finisce il mare.
+function seaProfile(cells,side){
+  const has=new Set(cells.map(([r,c])=>r*N+c));
+  const prof=[];
+  for(let k=0;k<N;k++){
+    let d=0;
+    for(let s=0;s<N;s++){
+      const r=side==='top'?s:side==='bottom'?N-1-s:k;
+      const c=side==='left'?s:side==='right'?N-1-s:k;
+      if(!has.has(r*N+c))break;
+      d++;
+    }
+    prof.push(d);
+  }
+  return prof;
+}
+function seaSideFrom(cells,side){
+  const prof=seaProfile(cells,side);
+  // le file si contano tollerando UN buco: chi lascia una casella vuota in
+  // mezzo alla riga sta ancora disegnando una costa, non due.
+  let best=null,start=-1,gap=0;
+  for(let k=0;k<=N;k++){
+    if(k<N&&prof[k]>0){if(start<0)start=k;gap=0;continue}
+    if(start<0)continue;
+    if(k<N&&gap===0){gap=1;continue}
+    const end=k-gap, len=end-start;
+    if(!best||len>best.len)best={start,end,len};
+    start=-1;gap=0;
+  }
+  if(!best||best.len<SEA_MIN_RUN)return null;
+  // la profondita' si misura SENZA le colonne di testa e di coda: agli
+  // angoli di un'isola due coste si incrociano, e li' la colonna e' bagnata
+  // fino in fondo — non e' una costa profonda, e' l'altra costa. In mezzo
+  // invece la regola resta severa: lunga e bassa e' costa, stretta e
+  // profonda e' un fiume che tocca il bordo, ed era esattamente il caso
+  // per cui il mare era stato spento.
+  const cuore=best.len>=3?prof.slice(best.start+1,best.end-1):prof.slice(best.start,best.end);
+  // ...e tollerando una o due colonne profonde in mezzo: quelle sono le
+  // FOCI. Un fiume che sfocia in mare e' attaccato alla fila blu e scava
+  // una colonna bagnata fino in fondo; se bastasse lei a far scartare la
+  // costa, una citta' di mare con un fiume non esisterebbe. Due sole pero':
+  // quattro colonne profonde di fila sono un fiume largo, non una costa.
+  const ord=cuore.slice().sort((a,b)=>b-a);
+  const foci=Math.min(2,Math.floor(cuore.length/4));
+  const deep=Math.max(...ord.slice(foci));
+  if(deep>Math.max(2,best.len/2))return null;
+  const axis=(side==='left'||side==='right')?'x':'y';
+  const dir=(side==='top'||side==='left')?-1:1;
+  // la colonna d'angolo, bagnata fino in fondo, tirerebbe la costa dentro
+  // un fiordo: si taglia a una casella piu' del fondale vero.
+  const cap=prof.map(v=>Math.min(v,deep+1));
+  // profilo ammorbidito: senza, il salto fra una colonna e la vicina
+  // diventa una scogliera verticale che un taglio assiale non sa fare.
+  const soft=cap.map((v,k)=>(seaAt(cap,k-1)+2*v+seaAt(cap,k+1))/4);
+  return {side,axis,dir,nVec:axis==='x'?[dir,0]:[0,dir],prof:soft,raw:prof,banda:cap,
+          run:best.len,deep,wseed:SEA_LATI[side]};
+}
+// una casella sta sotto costa se e' una di quelle contate dal bordo, fino
+// alla profondita' TAGLIATA (banda): nella colonna di una foce il mare
+// arriva solo fin dove arriva la costa, il resto della colonna e' fiume.
+function seaCellIn(sides,r,c){
+  if(r<0||r>=N||c<0||c>=N)return false;
+  for(const s of sides){
+    const k=s.axis==='x'?r:c;
+    const d=s.side==='top'?r:s.side==='bottom'?N-1-r:s.side==='left'?c:N-1-c;
+    if(d<s.banda[k])return true;
+  }
+  return false;
+}
+// quanto dista un punto dalla costa restando a terra: positivo sulla
+// terraferma, negativo in acqua. Serve alla foce (sotto) per sapere dove
+// il fiume comincia ad allargarsi.
+function seaLandDist(sides,p){
+  let d=Infinity;
+  for(const s of sides)d=Math.min(d,s.dir*(seaCoastT(s,seaU(s,p))-seaT(s,p)));
+  return d;
+}
+// tutte le coste di una macchia d'acqua: una per lato che qualifica.
+// Quattro lati = isola, e non serve altro codice per l'isola.
+function seaSides(cells){
+  const out=[];
+  for(const side in SEA_LATI){const s=seaSideFrom(cells,side);if(s)out.push(s)}
+  return out.length?out:null;
+}
+// il movimento della costa: due scale sovrapposte, una lunga che disegna
+// insenature e sporgenze e una corta che sfrangia il bordo. Il rumore
+// dipende gia' da NSEED (l'hash della scacchiera, vedi h2 in geometry.js):
+// due carte diverse non hanno la stessa costa, la stessa carta si' sempre.
+function seaWiggle(sea,u){
+  return SEA_WAVE_LONG*fbm(u*.0022,sea.wseed,3)+SEA_WAVE*fbm(u*.0095,sea.wseed+7.3,3);
+}
+// la costa in coordinate mappa, alla quota u lungo il lato
+function seaCoastT(sea,u){
+  const g=(u-PAD)/CELL-.5, k=Math.floor(g), t=clamp(g-k,0,1);
+  const e=t*t*(3-2*t);                       // smoothstep: baie, non gradini
+  const d=seaAt(sea.prof,k)+(seaAt(sea.prof,k+1)-seaAt(sea.prof,k))*e;
+  const base=sea.dir<0?W(d):W(N-d);
+  return base+sea.dir*seaWiggle(sea,u);
+}
+function seaWet(sides,x,y){
+  const p=[x,y];
+  for(const s of sides)if(s.dir*seaT(s,p)>s.dir*seaCoastT(s,seaU(s,p)))return true;
+  return false;
+}
+// il taglio del tessuto passa esattamente sulla costa, alla quota del
+// blocco: li' sopra ci corre il lungomare e i palazzi gli si affacciano.
+// Nessun arretramento — arretrare lascia una striscia di terreno nudo fra
+// le case e la sabbia, ed e' proprio quella che non deve esserci.
+function seaCutOffset(sea,poly){
+  let u=0;for(const v of poly)u+=seaU(sea,v);
+  return sea.dir*seaCoastT(sea,u/poly.length);
+}
+// quanto dista un punto dalla costa piu' vicina: serve a riconoscere i
+// lotti sul fronte mare, che vanno lasciati in riga e non sfrangiati.
+function seaDistance(sides,p){
+  let d=Infinity;
+  for(const s of sides)d=Math.min(d,Math.abs(seaT(s,p)-seaCoastT(s,seaU(s,p))));
+  return d;
+}
+// una retta media: serve solo alla rete di sicurezza in main.js
+function seaMeanOffset(sea){
+  let t=0;for(let k=0;k<N;k++)t+=seaCoastT(sea,PAD+(k+.5)*CELL);
+  return sea.dir*(t/N);
+}
+// il lungomare: la costa arretrata, tenuta solo dove passa davvero dentro
+// la citta' e non finisce nell'acqua di un'altra costa (gli angoli).
+function seaPromenade(sea,cityPoly,sides){
+  const pezzi=[],passo=CELL*.42;
+  let run=[];
+  for(let u=0;u<=MAPW;u+=passo){
+    const p=seaPt(sea,u,seaCoastT(sea,u));
+    const asciutto=!sides.some(o=>o!==sea&&o.dir*seaT(o,p)>o.dir*seaCoastT(o,seaU(o,p)));
+    if(asciutto&&inPoly(p,cityPoly))run.push(p);
+    else{if(run.length>1)pezzi.push(run);run=[]}
+  }
+  if(run.length>1)pezzi.push(run);
+  return pezzi;
+}
+// la ferrovia esce sempre 44px oltre il bordo citta' (buildRail): dove quel
+// bordo e' la costa, il binario finiva in mezzo all'acqua.
+function clipSegmentsToLand(segments,sides){
+  if(!sides||!sides.length)return segments;
+  let out=segments;
+  for(const sea of sides){
+    const lato=p=>sea.dir*seaT(sea,p)-sea.dir*seaCoastT(sea,seaU(sea,p)); // <=0 terra
+    const next=[];
+    for(const [a,b] of out){
+      const sa=lato(a), sb=lato(b);
+      if(sa<=0&&sb<=0){next.push([a,b]);continue}
+      if(sa>0&&sb>0)continue;
+      const t=sa/(sa-sb), m=[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t];
+      next.push(sa<=0?[a,m]:[m,b]);
+    }
+    out=next;
+  }
+  return out;
 }
