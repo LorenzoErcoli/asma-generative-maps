@@ -35,7 +35,7 @@ function isAllowed(relPath){
   const top = relPath.split('/')[1];
   return ALLOW_ROOTS.includes(top);
 }
-http.createServer((req,res)=>{
+const server = http.createServer((req,res)=>{
   if (req.url.startsWith('/api/')) {
     const proxyReq = http.request({ host:'127.0.0.1', port:AI_PORT, path:req.url, method:req.method, headers:req.headers }, proxyRes=>{
       res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -59,4 +59,21 @@ http.createServer((req,res)=>{
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
     res.end(data);
   });
-}).listen(port, ()=>console.log('generatore mappe: dev server su http://localhost:'+port));
+});
+// Una porta occupata e' la cosa piu' comune che va storta (un avvio
+// precedente rimasto acceso) e senza questo si presenta come uno stack
+// trace di Node: illeggibile, e sembra che il progetto sia rotto.
+server.on('error', err => {
+  console.error('');
+  if (err.code === 'EADDRINUSE') {
+    console.error(`La porta ${port} e gia occupata: probabilmente ASMA e gia avviato in un'altra finestra.`);
+    console.error('Chiudi quella finestra e riprova, oppure usa un altra porta:');
+    console.error(`  PORT=${port + 1} npm start           (macOS, Linux)`);
+    console.error(`  $env:PORT=${port + 1}; npm start      (PowerShell)`);
+  } else {
+    console.error('Il generatore non e riuscito a partire:', err.message);
+  }
+  console.error('');
+  process.exit(1);
+});
+server.listen(port, ()=>console.log('generatore mappe: dev server su http://localhost:'+port));

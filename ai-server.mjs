@@ -338,6 +338,22 @@ const httpServer=createHttpServer((req,res)=>{
   return handleRequest(req,res);
 });
 
+// stesso motivo del generatore: una porta occupata non deve presentarsi
+// come uno stack trace.
+function spiegaPorta(nome,porta){
+  return err=>{
+    console.error('');
+    if(err.code==='EADDRINUSE'){
+      console.error(`La porta ${porta} (${nome}) e gia occupata: probabilmente lo scanner e gia avviato altrove.`);
+      console.error('Chiudi l altra finestra e riprova, oppure cambia PORT / HTTPS_PORT in .env.local.');
+    }else{
+      console.error(`Lo scanner non e riuscito a partire su ${porta}:`,err.message);
+    }
+    console.error('');
+    process.exit(1);
+  };
+}
+httpServer.on('error',spiegaPorta('HTTP',PORT));
 httpServer.listen(PORT,'0.0.0.0',()=>{
   console.log(`ASMA scanner: http://localhost:${PORT}/scanner.html`);
   for(const address of localAddresses('http',PORT))console.log(`Certificato iPad: ${address}/certs/asma-local-ca.cer`);
@@ -350,6 +366,7 @@ httpServer.listen(PORT,'0.0.0.0',()=>{
 
 if(tls){
   const httpsServer=createHttpsServer(tls,handleRequest);
+  httpsServer.on('error',spiegaPorta('HTTPS',HTTPS_PORT));
   httpsServer.listen(HTTPS_PORT,'0.0.0.0',()=>{
     console.log(`ASMA scanner HTTPS: https://localhost:${HTTPS_PORT}/scanner.html`);
     for(const address of localAddresses('https',HTTPS_PORT))console.log(`iPad HTTPS: ${address}/scanner.html`);
