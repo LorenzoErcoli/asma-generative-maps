@@ -117,6 +117,34 @@ for (const scenario of scenarios) {
   console.log(`${scenario.name}: ${api.status()}`);
 }
 
+// --- INVARIANTE: un lago vicino al fiume resta un lago ---
+// Una macchia d'acqua staccata dal fiume puo' agganciarsi come affluente
+// (waterField in world.js), ma solo se e' LUNGA: una macchia compatta e'
+// un lago e resta un lago, anche a due caselle dal fiume. Con la vecchia
+// regola bastava la distanza — e con una soglia di cinque caselle, che su
+// una scacchiera di otto vuol dire quasi ovunque: chi metteva un laghetto
+// accanto al fiume si ritrovava un secondo "Fiume", disegnato come un
+// nastro che entra dal bordo della carta.
+{
+  const conFiume = extra => {
+    const grid = api.empty();
+    for (let r = 0; r < 8; r++) grid[r][3] = { kind: 'terrain', terrain: 'water' };
+    for (const [r, c] of extra) grid[r][c] = { kind: 'terrain', terrain: 'water' };
+    for (const [i, [r, c, cat]] of [[1, 1, 'municipio'], [1, 6, 'piazza'], [6, 1, 'mercato'], [6, 6, 'teatro']].entries())
+      grid[r][c] = { kind: 'place', cat, ord: i + 1 };
+    api.setGrid(grid);
+    api.generate();
+    return api.svg();
+  };
+  const lago = conFiume([[3, 5], [3, 6], [4, 5], [4, 6]]);
+  assert(/Lago di /.test(lago), 'una macchia compatta accanto al fiume deve restare un lago');
+  assert((lago.match(/>Fiume /g) || []).length === 1, 'il lago accanto al fiume non deve diventare un secondo fiume');
+  // la controprova: una lingua d'acqua lunga e stretta, li' accanto, e'
+  // proprio quello che un affluente deve essere, e va agganciata.
+  const affluente = conFiume([[2, 5], [3, 5], [4, 5], [5, 5]]);
+  assert((affluente.match(/>Fiume /g) || []).length === 2, 'una lingua lunga accanto al fiume e\' un affluente');
+}
+
 // Il porto e' l'unica categoria con needsWater: senza acqua accanto la
 // pedina va scartata, non deve produrre un porto in mezzo alla pianura.
 for (const cat of ['porto']) {

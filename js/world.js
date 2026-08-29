@@ -295,14 +295,31 @@ function waterField(waterComps,places){
       if(trunk){
         path=extendRiverToFrame(path);
       }else{
+        // Un affluente e' una cosa LUNGA che arriva vicino al fiume, e sono
+        // due condizioni, non una. Prima bastava la distanza, e con una
+        // soglia di cinque caselle: su una scacchiera di otto vuol dire
+        // quasi ovunque, quindi qualunque lago messo nella stessa meta' del
+        // foglio veniva promosso, ribattezzato "Fiume X" e disegnato come un
+        // nastro che entra dal bordo della carta. Un lago vicino al fiume e'
+        // una cosa normalissima da mettere sulla scacchiera, e deve restare
+        // un lago.
+        //   lungo  = sta in una fascia larga al massimo due caselle, ne
+        //            attraversa almeno tre, e non e' pieno (una macchia 2x3
+        //            e' compatta, una L di quattro caselle no)
+        //   vicino = un paio di caselle e mezza, non mezza scacchiera
+        const rs=cells.map(c=>c[0]), cs=cells.map(c=>c[1]);
+        const dr=Math.max(...rs)-Math.min(...rs)+1, dc=Math.max(...cs)-Math.min(...cs)+1;
+        const lunga=Math.max(dr,dc), stretta=Math.min(dr,dc);
+        const lungo=lunga>=3&&stretta<=2&&cells.length<=lunga*1.6;
         let join=null;
-        for(const end of [0,path.length-1])for(const axis of rawAxes)for(const q of axis){
+        if(lungo)for(const end of [0,path.length-1])for(const axis of rawAxes)for(const q of axis){
           const d=dist(path[end],q);if(!join||d<join.d)join={end,q,d};
         }
-        // troppo lontano da un fiume vero: resta (o torna) un lago — anche
-        // il nome deve seguire, altrimenti un "fiume" declassato mostra
-        // ancora l'etichetta "Fiume X" pur disegnato come una macchia blu.
-        if(!join||join.d>=5*CELL){cp.cls='lago';cp.label='Lago di '+cp.proper;continue}
+        // compatto, o troppo lontano da un fiume vero: resta (o torna) un
+        // lago — anche il nome deve seguire, altrimenti un "fiume"
+        // declassato mostra ancora l'etichetta "Fiume X" pur disegnato come
+        // una macchia blu.
+        if(!join||join.d>=2.6*CELL){cp.cls='lago';cp.label='Lago di '+cp.proper;continue}
         if(join.end===0)path.reverse();
         path=[extendRiverPoint(path[0],path[1]),...path,join.q];
         tributary=true;
