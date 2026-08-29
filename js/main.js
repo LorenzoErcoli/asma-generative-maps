@@ -300,7 +300,7 @@ function generate(){
   S.push(seaLayer(seaDraw,P));
   S.push(waterLayer(waterLoops,rivers,waterComps,docks));
   S.push(tessutoBridgesLayer(bridges,P));
-  S.push(tessutoRailLayer(rail,river,P));
+  S.push(tessutoRailLayer(rail,river,P,waterLoops));
   S.push(fillersLayer(fillers,P));
   S.push(landmarksLayer(places,P));
 
