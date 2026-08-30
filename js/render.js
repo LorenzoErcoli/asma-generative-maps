@@ -136,7 +136,25 @@ function tessutoBridgesLayer(bridges,P){
   }
   return s;
 }
-function tessutoRailLayer(rail,river,P){
+// il tratto di un segmento che passa DENTRO una macchia d'acqua, campionato:
+// serve solo a sapere da dove a dove tirare l'impalcato, e campionare e'
+// piu' robusto che intersecare un contorno che ha centinaia di vertici.
+function segWaterSpan(a,b,poly){
+  const n=48; let primo=-1,ultimo=-1;
+  for(let i=0;i<=n;i++){
+    const t=i/n, p=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+    if(inPoly(p,poly)){if(primo<0)primo=i;ultimo=i}
+  }
+  if(primo<0)return null;
+  const L=Math.hypot(b[0]-a[0],b[1]-a[1]);
+  const dentro=(ultimo-primo)/n;
+  if(dentro*L<7)return null;               // sfiora appena la riva: niente ponte
+  const gioco=dentro*.09;                  // l'impalcato sborda un po' sulle due rive
+  const t0=Math.max(0,primo/n-gioco), t1=Math.min(1,ultimo/n+gioco);
+  return [[a[0]+(b[0]-a[0])*t0,a[1]+(b[1]-a[1])*t0],
+          [a[0]+(b[0]-a[0])*t1,a[1]+(b[1]-a[1])*t1]];
+}
+function tessutoRailLayer(rail,river,P,laghi){
   if(!rail)return '';
   let s='<g fill="'+P.builtLn+'">';
   for(const[a,b]of rail.segments){
@@ -157,14 +175,26 @@ function tessutoRailLayer(rail,river,P){
       s+=`<line x1="${F1(x-nx*2.2)}" y1="${F1(y-ny*2.2)}" x2="${F1(x+nx*2.2)}" y2="${F1(y+ny*2.2)}"/>`;}
   }
   s+='</g>';
+  // l'impalcato: una barra scura con sopra il binario tratteggiato. Uguale
+  // sul fiume e sul lago — un ponte ferroviario e' un ponte ferroviario.
+  const impalcato=(p0,p1)=>
+    `<line x1="${F1(p0[0])}" y1="${F1(p0[1])}" x2="${F1(p1[0])}" y2="${F1(p1[1])}" stroke="${P.ink}" stroke-width="5" stroke-linecap="butt"/>`
+    +`<line x1="${F1(p0[0])}" y1="${F1(p0[1])}" x2="${F1(p1[0])}" y2="${F1(p1[1])}" stroke="${P.rail}" stroke-width="1.1" stroke-dasharray=".8 4.5"/>`;
   if(river)for(const[a,b]of rail.segments){
     const cross=segCrossesRiver(a,b,river);
     if(!cross)continue;
     const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
     const hwLocal=riverAt(river,cross).hw;
-    const p0=[cross[0]-ux*hwLocal*1.15,cross[1]-uy*hwLocal*1.15], p1=[cross[0]+ux*hwLocal*1.15,cross[1]+uy*hwLocal*1.15];
-    s+=`<line x1="${F1(p0[0])}" y1="${F1(p0[1])}" x2="${F1(p1[0])}" y2="${F1(p1[1])}" stroke="${P.ink}" stroke-width="5" stroke-linecap="butt"/>`;
-    s+=`<line x1="${F1(p0[0])}" y1="${F1(p0[1])}" x2="${F1(p1[0])}" y2="${F1(p1[1])}" stroke="${P.rail}" stroke-width="1.1" stroke-dasharray=".8 4.5"/>`;
+    s+=impalcato([cross[0]-ux*hwLocal*1.15,cross[1]-uy*hwLocal*1.15],
+                 [cross[0]+ux*hwLocal*1.15,cross[1]+uy*hwLocal*1.15]);
+  }
+  // Il lago non aveva il suo ponte: il binario ci entrava dentro e riusciva
+  // dall'altra parte come se niente fosse, ed e' la prima cosa che si nota
+  // su una carta con un lago in mezzo alla campagna. La ferrovia il fiume
+  // lo scavalca da sempre (sopra); da qui in poi scavalca anche il lago.
+  if(laghi)for(const[a,b]of rail.segments)for(const lago of laghi){
+    const tratto=segWaterSpan(a,b,lago);
+    if(tratto)s+=impalcato(tratto[0],tratto[1]);
   }
   return s;
 }
